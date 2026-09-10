@@ -1,9 +1,9 @@
 import { AddressInfo, Coordinate, LandLookupError } from '../types/land';
 import { getVworldApiKey, hasVworldApiKey, VWORLD_GEOCODER_URL } from './config';
 
-// 브이월드 지오코더(좌표 -> 주소) API 2.0
-// 참고: 4장/9장 3단계 - 먼저 이 API로 테스트해서 요구사항이 충족되는지 확인할 것.
-// 응답 스키마가 문서와 다르면 parseGeocoderResponse만 수정하면 되도록 분리했다.
+// 브이월드 지오코더(좌표 -> 주소) API 2.0 — 0단계 확인 완료
+// GET /req/address?service=address&request=getAddress&version=2.0
+//     &crs=epsg:4326&point=경도,위도&format=json&type=PARCEL&key=키
 export async function reverseGeocode(
   coordinate: Coordinate,
 ): Promise<{ ok: true; data: AddressInfo } | { ok: false; error: LandLookupError }> {
@@ -21,9 +21,7 @@ export async function reverseGeocode(
     crs: 'epsg:4326',
     point: `${coordinate.longitude},${coordinate.latitude}`,
     format: 'json',
-    type: 'both',
-    zipcode: 'false',
-    simple: 'false',
+    type: 'PARCEL',
     key: getVworldApiKey(),
   });
 
@@ -46,10 +44,11 @@ export async function reverseGeocode(
 }
 
 function parseGeocoderResponse(json: any): AddressInfo {
-  const results: any[] = json?.response?.result ?? [];
+  const rawResult = json?.response?.result;
+  const results: any[] = Array.isArray(rawResult) ? rawResult : rawResult ? [rawResult] : [];
 
-  const parcel = results.find((r) => r?.type === 'parcel');
-  const road = results.find((r) => r?.type === 'road');
+  const parcel = results.find((r) => String(r?.type).toLowerCase() === 'parcel') ?? results[0];
+  const road = results.find((r) => String(r?.type).toLowerCase() === 'road');
 
   return {
     jibunAddress: parcel?.text ?? null,

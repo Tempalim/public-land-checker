@@ -6,25 +6,36 @@
 국공유지에서 불법 점유(자릿세 요구 등)가 의심되면 안전신문고 신고로 바로 연결해 주는 여름철 계곡·하천
 피서객용 MVP 앱입니다.
 
-## 0. 시작하기 전에 꼭 확인할 것 — API 응답 확인
+## 0. 사용하는 브이월드 API (0단계 확인 완료)
 
-**코드를 보기 전에 이 단계부터 하세요.** 브이월드 "토지소유정보속성조회" API는 실제 발급받은 키로
-직접 호출해서 응답 필드명/값을 확인하지 않으면 나중에 파싱 로직을 전부 갈아엎어야 할 수 있습니다.
+좌표 하나로 세 번의 호출이 일어납니다. `scripts/test-land-api.mjs`가 이 흐름을 그대로 재현하므로,
+앱을 켜기 전에 먼저 이걸로 응답을 확인할 수 있습니다.
 
 ```bash
 VWORLD_API_KEY=발급받은키 node scripts/test-land-api.mjs 126.978 37.5665
 ```
 
-이 스크립트는 (1) 지오코더(좌표→주소), (2) 연속지적도 필지 속성(PNU 포함) 을 순서대로 호출해
-원본 JSON 응답을 그대로 출력합니다. 소유구분 관련 필드명이 이 저장소가 가정한 것과 다르면
-`src/api/landOwnership.ts` 상단의 `LAND_OWNERSHIP_LAYER` 상수와 파싱 부분만 고치면 됩니다.
+| 목적 | 요청 |
+|---|---|
+| 좌표 → 지번주소 | `GET /req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=경도,위도&format=json&type=PARCEL&key=키` |
+| 좌표 → PNU(19자리) | `GET /req/data?service=data&request=GetFeature&data=LP_PA_CBND_BUBUN&geomFilter=POINT(경도 위도)&format=json&size=10&key=키` → `response.result.featureCollection.features[0].properties.pnu` |
+| PNU → 소유구분 | `GET /ned/data/getPossessionAttr?pnu=…&format=json&numOfRows=…&pageNo=1&key=키` |
 
-> **왜 미리 확정하지 않았는가**: 이 리포지토리는 브이월드(vworld.kr) 문서 사이트에 대한 아웃바운드
-> 네트워크 접근이 차단된 환경에서 작성되었습니다. 그래서 "토지소유정보속성조회"의 정확한 데이터
-> 레이어명은 확정하지 못했고, 대신 국토교통부 토지소유정보 데이터셋(같은 원천 데이터)에서 널리
-> 쓰이는 필드명 `posesnSeCode` / `posesnSeCodeNm`(소유구분코드/명), `nationInsttSeCode` /
-> `nationInsttSeCodeNm`(국가기관구분코드/명)을 기준으로 파싱 로직을 작성해 두었습니다. 실제 응답을
-> 확인한 뒤 `scripts/test-land-api.mjs`의 3단계와 `src/api/landOwnership.ts`를 보정하세요.
+소유정보 응답 구조:
+
+```json
+{ "possessions": { "field": [ { "posesnSeCode": "01", "posesnSeCodeNm": "개인", "ldCodeNm": "…",
+  "mnnmSlno": "…", "lndcgrCodeNm": "…", "lndpclAr": "…", "lastUpdtDt": "…" } ],
+  "pageNo": 1, "totalCount": 1, "numOfRows": 100, "resultCode": "00", "resultMsg": "…" } }
+```
+
+**소유구분 판별**: `posesnSeCode`("01" 등)의 코드-의미 매핑표는 확인되지 않았으므로 한글 라벨인
+`posesnSeCodeNm`으로 판별합니다 (`src/utils/ownership.ts`). "국유" → 국유지, "공유"(및 시유/도유/
+군유 등 지자체 표기) → 공유지, "개인"/"법인"/"사유" → 사유지, 그 외에는 추측하지 않고 **확인 불가**로
+처리합니다.
+
+**복수 레코드**: `totalCount`가 1보다 클 수 있습니다(건물 층별 등). 소유구분이 모두 같으면 하나로
+표시하고, 서로 다르면 소유구분을 단정하지 않고 "복수 소유" 안내와 함께 전체 목록을 보여줍니다.
 
 ## 1. 준비물
 
@@ -78,18 +89,20 @@ src/
 
 ```
 GPS 좌표 또는 지도 탭 좌표
-  → src/api/geocoder.ts        (표시용 지번/도로명 주소)
-  → src/api/landOwnership.ts   연속지적도 레이어로 PNU 조회 → PNU로 소유구분 속성 조회
-  → src/utils/ownership.ts     소유구분 라벨(예: "시,도유지")을 national/public/private로 분류
-  → ResultCard                 결과 카드 표시, 국/공유지면 신고 버튼 노출
-  → ReportGuideModal           체크리스트 안내 후 안전신문고 앱/스토어/웹 연결
+  → geocoder.ts + landOwnership.ts   지번주소 조회와 PNU 조회를 병렬 호출
+  → landOwnership.ts                 PNU → getPossessionAttr 로 소유구분/지목/면적 조회
+  → utils/ownership.ts               posesnSeCodeNm(예: "개인")을 national/public/private로 분류
+  → ResultCard                       결과 카드 표시, 국/공유지면 신고 버튼 노출
+  → ReportGuideModal                 체크리스트 안내 후 안전신문고 앱/스토어/웹 연결
 ```
 
 ## 5. 예외 처리 구현 현황
 
 | 상황 | 구현 위치 |
 |---|---|
-| 하천구역이라 지번이 없음 | `landOwnership.ts`의 `isNoCadastralInfo` → `ResultCard`의 안내 문구 |
+| 하천구역이라 지번이 없음 | PNU 조회 결과 없음 → `isNoCadastralInfo` → `ResultCard`의 안내 문구 |
+| 한 필지에 소유구분이 다른 복수 레코드 | `hasMixedOwnership` → 소유구분을 단정하지 않고 목록과 함께 안내 |
+| 소유구분 라벨이 알 수 없는 값 | `classifyOwnership`이 'unknown' 반환 → "확인 불가" 표시 |
 | API 조회 실패 | `ResultCard`의 오류 카드 + "다시 시도" 버튼 |
 | 위치 권한 거부 | `MapScreen`의 권한 안내 화면 + 설정 열기 버튼 |
 | GPS 정확도 낮음 (>50m) | `MapScreen` 상단 배너 + 지도에서 직접 선택 유도 |
@@ -107,20 +120,21 @@ GPS 좌표 또는 지도 탭 좌표
 
 ## 7. 개발 순서 진행 상황
 
-- [x] 0단계 — API 응답 확인용 스크립트 작성 (`scripts/test-land-api.mjs`, **실제 키로 실행은 사용자가 직접 확인 필요**)
+- [x] 0단계 — API 응답 확인 완료 (엔드포인트/응답 구조/소유구분 필드 확정, 위 0장 참고)
 - [x] 1단계 — Expo 프로젝트 생성 (TypeScript)
 - [x] 2단계 — 위치 권한 + GPS 좌표 획득 (`useCurrentLocation`)
 - [x] 3단계 — 지오코더 연동 (`api/geocoder.ts`)
-- [x] 4단계 — 토지소유정보 API 연동 (`api/landOwnership.ts`, 소유정보 레이어명은 0단계 확인 후 확정 필요)
+- [x] 4단계 — 토지소유정보 API 연동 (`api/landOwnership.ts`, `getPossessionAttr`)
 - [x] 5단계 — 지도 화면 (`MapWebView`, 현재 위치 중심 + 탭으로 지점 선택)
 - [x] 6단계 — 결과 카드 UI (`ResultCard`, 바텀시트)
 - [x] 7단계 — 안전신문고 연결 (`ReportGuideModal`)
 - [x] 8단계 — 예외 처리 + 면책 문구
 - [ ] 9단계 — 디자인 다듬기 (실기기 테스트 후 진행 권장)
 
-**중요**: 각 API 연동 단계는 실제 인증키로 실기기(Expo Go)에서 직접 확인이 필요합니다. 이 저장소가
-만들어진 환경은 vworld.kr에 대한 네트워크 접근과 실물 기기 테스트가 불가능했으므로, 위 체크는
-"코드 작성 완료" 기준이며 "실제 동작 확인 완료"가 아닙니다. 0단계 스크립트부터 실행해 확인하세요.
+**중요**: API 사양은 0단계에서 확인되었지만, 코드가 실기기에서 동작하는지는 아직 확인되지
+않았습니다 (이 저장소가 만들어진 환경에서는 vworld.kr 호출과 실물 기기 테스트가 불가능).
+`npm run test-land-api`로 응답을 먼저 확인한 뒤 Expo Go로 각 화면을 눌러보세요. 특히 지도 마커
+표시(`vw.ol3.Overlay`)와 안전신문고 딥링크 스킴은 미검증 상태입니다.
 
 ## 8. 환경변수
 

@@ -11,3 +11,5 @@ export function hasVworldApiKey(): boolean {
 
 export const VWORLD_GEOCODER_URL = 'https://api.vworld.kr/req/address';
 export const VWORLD_DATA_URL = 'https://api.vworld.kr/req/data';
+/** 토지소유정보속성조회 (0단계 확인 완료: /req/data 방식이 아니라 /ned/data 엔드포인트) */
+export const VWORLD_POSSESSION_ATTR_URL = 'https://api.vworld.kr/ned/data/getPossessionAttr';

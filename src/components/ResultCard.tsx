@@ -74,16 +74,40 @@ export function ResultCard({ loading, errorMessage, result, onRetry, onReportPre
         </Text>
       )}
 
+      {result.hasMixedOwnership && (
+        <Text style={styles.mixedNotice}>
+          이 필지에는 소유구분이 다른 {result.recordCount}건의 기록이 있습니다 (
+          {result.ownershipLabels.join(', ')}). 복수 소유일 수 있어 단정하기 어렵습니다.
+        </Text>
+      )}
+
       <InfoRow label="주소" value={result.address.jibunAddress ?? '확인 불가'} />
       <InfoRow label="지목" value={result.landCategory ?? '확인 불가'} />
-      <InfoRow label="소유" value={ownershipDisplayName(result.ownershipType)} />
-      {result.institutionLabel && <InfoRow label="관리기관" value={result.institutionLabel} />}
+      <InfoRow
+        label="소유"
+        value={
+          result.hasMixedOwnership
+            ? result.ownershipLabels.join(', ')
+            : formatOwnership(result.ownershipType, result.ownershipLabel)
+        }
+      />
+      {result.areaSquareMeters != null && !Number.isNaN(result.areaSquareMeters) && (
+        <InfoRow label="면적" value={`${result.areaSquareMeters.toLocaleString('ko-KR')}㎡`} />
+      )}
+      {result.lastUpdatedAt && <InfoRow label="갱신일" value={result.lastUpdatedAt} />}
 
       {isReportable(result.ownershipType) && <ReportSection onPress={onReportPress} />}
 
       <Disclaimer />
     </View>
   );
+}
+
+/** 분류 결과와 원문 라벨을 함께 보여준다 (예: "국유지 (국유지)" 대신 "국유지", "확인 불가 (기타)") */
+function formatOwnership(type: LandOwnershipResult['ownershipType'], label: string | null): string {
+  const display = ownershipDisplayName(type);
+  if (!label) return display;
+  return label === display ? display : `${display} (${label})`;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -167,6 +191,15 @@ const styles = StyleSheet.create({
   mockNotice: {
     fontSize: 12,
     color: colors.private,
+    marginBottom: 8,
+  },
+  mixedNotice: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.text,
+    backgroundColor: colors.unknownBg,
+    padding: 10,
+    borderRadius: 8,
     marginBottom: 8,
   },
   infoRow: {

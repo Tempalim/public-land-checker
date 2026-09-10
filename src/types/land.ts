@@ -14,12 +14,22 @@ export interface AddressInfo {
 
 export interface LandOwnershipResult {
   ownershipType: OwnershipType;
-  /** 소유구분 원문 (예: "시,도유지", "개인") */
+  /** 소유구분 원문 (예: "개인", "국유지"). 복수 레코드면 대표값 */
   ownershipLabel: string | null;
-  /** 국가기관구분 (예: "지자체", "중앙부처") */
-  institutionLabel: string | null;
-  /** 지목 (예: 임야, 대, 전, 답) */
+  /** 소유구분코드 원문 (예: "01"). 코드 매핑 미확인이라 표시/디버깅용으로만 보관 */
+  ownershipCode: string | null;
+  /** 복수 레코드에서 서로 다른 소유구분이 섞여 있을 때의 전체 목록 */
+  ownershipLabels: string[];
+  /** 소유구분이 서로 다른 레코드가 섞여 있는지 (복수 소유 안내용) */
+  hasMixedOwnership: boolean;
+  /** 조회된 소유 레코드 수 (totalCount) */
+  recordCount: number;
+  /** 지목 (lndcgrCodeNm, 예: 임야, 대, 전, 답) */
   landCategory: string | null;
+  /** 면적 (lndpclAr, ㎡) */
+  areaSquareMeters: number | null;
+  /** 데이터 갱신일 (lastUpdtDt) */
+  lastUpdatedAt: string | null;
   /** 19자리 PNU 코드 */
   pnu: string | null;
   address: AddressInfo;
@@ -32,4 +42,16 @@ export interface LandOwnershipResult {
 export interface LandLookupError {
   code: 'NETWORK' | 'NO_API_KEY' | 'NOT_FOUND' | 'UNKNOWN';
   message: string;
+}
+
+/** getPossessionAttr 응답의 possessions.field 원소 (0단계에서 확인된 필드만) */
+export interface PossessionField {
+  posesnSeCode?: string;
+  posesnSeCodeNm?: string;
+  ldCodeNm?: string;
+  mnnmSlno?: string;
+  lndcgrCodeNm?: string;
+  lndpclAr?: string | number;
+  lastUpdtDt?: string;
+  [key: string]: unknown;
 }

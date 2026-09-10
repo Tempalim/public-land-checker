@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 9장 0단계 — API 응답 확인용 스크립트.
- * 코드를 앱에 붙이기 전에 이 스크립트로 브이월드 API 응답을 직접 확인한다.
+ * 브이월드 API 응답 확인용 스크립트 (개발 순서 0단계).
+ * 앱을 켜지 않고 좌표 하나로 전체 흐름(주소 → PNU → 소유구분)을 그대로 재현한다.
  *
  * 사용법:
  *   VWORLD_API_KEY=발급받은키 node scripts/test-land-api.mjs 126.978 37.5665
@@ -18,59 +18,65 @@ const [, , lngArg, latArg] = process.argv;
 const longitude = lngArg ?? '126.978';
 const latitude = latArg ?? '37.5665';
 
-async function callGeocoder() {
-  const params = new URLSearchParams({
-    service: 'address',
-    request: 'getAddress',
-    version: '2.0',
-    crs: 'epsg:4326',
-    point: `${longitude},${latitude}`,
-    format: 'json',
-    type: 'both',
-    key: apiKey,
-  });
-  const url = `https://api.vworld.kr/req/address?${params.toString()}`;
-  console.log('\n[1/3] 지오코더 API 호출');
+async function callJson(label, url) {
+  console.log(`\n${label}`);
   console.log(url.replace(apiKey, '***'));
-  const json = await fetch(url).then((r) => r.json());
-  console.log(JSON.stringify(json, null, 2));
-  return json;
-}
-
-async function callParcel() {
-  const params = new URLSearchParams({
-    service: 'data',
-    request: 'GetFeature',
-    format: 'json',
-    crs: 'EPSG:4326',
-    data: 'LP_PA_CBND_BUBUN',
-    geomFilter: `POINT(${longitude} ${latitude})`,
-    size: '1',
-    key: apiKey,
-  });
-  const url = `https://api.vworld.kr/req/data?${params.toString()}`;
-  console.log('\n[2/3] 연속지적도(필지) 속성 조회 API 호출');
-  console.log(url.replace(apiKey, '***'));
-  const json = await fetch(url).then((r) => r.json());
-  console.log(JSON.stringify(json, null, 2));
-  return json;
-}
-
-async function callOwnership(pnu) {
-  if (!pnu) {
-    console.log('\n[3/3] PNU를 얻지 못해 소유정보 조회를 건너뜁니다.');
-    return;
+  const response = await fetch(url);
+  if (!response.ok) {
+    console.error(`HTTP ${response.status} ${response.statusText}`);
+    console.error(await response.text());
+    return null;
   }
-  console.log('\n[3/3] 토지소유정보속성조회 — 브이월드 오픈API > API 레퍼런스 > "토지소유정보"에서');
-  console.log('실제 요청 URL/파라미터를 확인한 뒤 아래 자리에 채워서 다시 호출해 보세요.');
-  console.log(`확인한 PNU: ${pnu}`);
+  const json = await response.json();
+  console.log(JSON.stringify(json, null, 2));
+  return json;
 }
 
-const geocoderJson = await callGeocoder();
-const parcelJson = await callParcel();
-const pnu = parcelJson?.response?.result?.featureCollection?.features?.[0]?.properties?.pnu ?? null;
-await callOwnership(pnu);
+// 1) 좌표 → 지번주소
+const geocoderUrl = `https://api.vworld.kr/req/address?${new URLSearchParams({
+  service: 'address',
+  request: 'getAddress',
+  version: '2.0',
+  crs: 'epsg:4326',
+  point: `${longitude},${latitude}`,
+  format: 'json',
+  type: 'PARCEL',
+  key: apiKey,
+})}`;
+await callJson('[1/3] 지오코더 (좌표 → 지번주소)', geocoderUrl);
 
-console.log(
-  '\n확인 결과에 맞춰 src/api/geocoder.ts, src/api/landOwnership.ts의 필드 매핑을 조정하세요.',
-);
+// 2) 좌표 → PNU
+const parcelUrl = `https://api.vworld.kr/req/data?${new URLSearchParams({
+  service: 'data',
+  request: 'GetFeature',
+  data: 'LP_PA_CBND_BUBUN',
+  key: apiKey,
+  geomFilter: `POINT(${longitude} ${latitude})`,
+  format: 'json',
+  size: '10',
+})}`;
+const parcelJson = await callJson('[2/3] 연속지적도 (좌표 → PNU)', parcelUrl);
+const pnu = parcelJson?.response?.result?.featureCollection?.features?.[0]?.properties?.pnu ?? null;
+
+// 3) PNU → 소유구분
+if (!pnu) {
+  console.log('\n[3/3] PNU를 얻지 못해 소유정보 조회를 건너뜁니다 (하천구역 등 지적 정보 없음).');
+} else {
+  const possessionUrl = `https://api.vworld.kr/ned/data/getPossessionAttr?${new URLSearchParams({
+    pnu,
+    format: 'json',
+    numOfRows: '100',
+    pageNo: '1',
+    key: apiKey,
+  })}`;
+  const possessionJson = await callJson(`[3/3] 토지소유정보속성조회 (PNU: ${pnu})`, possessionUrl);
+
+  const rawField = possessionJson?.possessions?.field;
+  const fields = Array.isArray(rawField) ? rawField : rawField ? [rawField] : [];
+  const labels = [...new Set(fields.map((f) => f?.posesnSeCodeNm).filter(Boolean))];
+
+  console.log('\n--- 요약 ---');
+  console.log(`totalCount: ${possessionJson?.possessions?.totalCount ?? '?'} (레코드 ${fields.length}건)`);
+  console.log(`소유구분: ${labels.join(', ') || '없음'}${labels.length > 1 ? '  ← 복수 소유' : ''}`);
+  console.log(`지목: ${fields[0]?.lndcgrCodeNm ?? '-'} / 면적: ${fields[0]?.lndpclAr ?? '-'}㎡`);
+}

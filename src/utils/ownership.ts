@@ -1,27 +1,25 @@
 import { OwnershipType } from '../types/land';
 
 /**
- * 브이월드/국토교통부 토지소유정보 응답의 "소유구분"(posesnSeCodeNm 등) 문자열을
- * 국유/공유/사유로 분류한다.
+ * getPossessionAttr 응답의 소유구분명(posesnSeCodeNm)을 국유/공유/사유로 분류한다.
  *
- * 코드값(posesnSeCode)만으로 판별하지 않고 한글 라벨 키워드로 판별하는 이유:
- * 실제 API 응답 스키마는 0단계(개발 순서 9장 참고)에서 실제 인증키로 호출해
- * 직접 확인해야 하며, 코드 표는 기관/버전에 따라 달라질 수 있어 신뢰도가 낮다.
- * 라벨 문자열은 그대로 사람이 읽는 값이라 오분류 위험이 적다.
- * 실제 응답을 확인한 후 이 키워드 목록을 보정할 것.
+ * 0단계 확인 결과: posesnSeCode는 "01" 같은 코드 문자열이지만 코드-의미 매핑표는
+ * 확인되지 않았다. 따라서 코드가 아니라 한글 라벨(posesnSeCodeNm)로 판별한다.
+ * 알 수 없는 값은 임의로 추측하지 않고 'unknown'(확인 불가)으로 처리한다.
  */
 export function classifyOwnership(ownershipLabel: string | null | undefined): OwnershipType {
   if (!ownershipLabel) return 'unknown';
 
-  const label = ownershipLabel.trim();
+  const label = ownershipLabel.replace(/\s/g, '');
 
   if (label.includes('국유')) return 'national';
+  if (label.includes('공유')) return 'public';
 
-  const publicKeywords = ['시유', '도유', '군유', '구유', '읍유', '면유', '리유', '공유', '시,도유'];
-  if (publicKeywords.some((keyword) => label.includes(keyword))) return 'public';
+  // "시,도유지" / "군유지" 처럼 '공유'라는 단어 없이 지자체 소유를 나타내는 표기도 공유지로 본다.
+  const localGovernmentKeywords = ['시유', '도유', '군유', '구유', '읍유', '면유', '리유'];
+  if (localGovernmentKeywords.some((keyword) => label.includes(keyword))) return 'public';
 
-  const privateKeywords = ['개인', '사유', '법인', '종중', '외국인'];
-  if (privateKeywords.some((keyword) => label.includes(keyword))) return 'private';
+  if (label.includes('개인') || label.includes('법인') || label.includes('사유')) return 'private';
 
   return 'unknown';
 }
