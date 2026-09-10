@@ -29,13 +29,39 @@ VWORLD_API_KEY=발급받은키 node scripts/test-land-api.mjs 126.978 37.5665
   "pageNo": 1, "totalCount": 1, "numOfRows": 100, "resultCode": "00", "resultMsg": "…" } }
 ```
 
-**소유구분 판별**: `posesnSeCode`("01" 등)의 코드-의미 매핑표는 확인되지 않았으므로 한글 라벨인
-`posesnSeCodeNm`으로 판별합니다 (`src/utils/ownership.ts`). "국유" → 국유지, "공유"(및 시유/도유/
-군유 등 지자체 표기) → 공유지, "개인"/"법인"/"사유" → 사유지, 그 외에는 추측하지 않고 **확인 불가**로
-처리합니다.
+**소유구분 판별** (`src/utils/ownership.ts`): `posesnSeCode` 코드값으로 판별합니다. 응답은 `"01"`
+같은 2자리, 코드정의서(국가중점데이터 컬럼정의서)는 1자리라서 앞의 0을 제거해 비교합니다.
 
-**복수 레코드**: `totalCount`가 1보다 클 수 있습니다(건물 층별 등). 소유구분이 모두 같으면 하나로
-표시하고, 서로 다르면 소유구분을 단정하지 않고 "복수 소유" 안내와 함께 전체 목록을 보여줍니다.
+| 코드 | 소유구분 | 앱 분류 |
+|---|---|---|
+| 0 | 일본인, 창씨명등 | 확인 불가 |
+| 1 | 개인 | 사유지 |
+| 2 | 국유지 | **국유지** |
+| 3 | 외국인, 외국공공기관 | 사유지 |
+| 4 | 시, 도유지 | **공유지** |
+| 5 | 군유지 | **공유지** |
+| 6 | 법인 | 사유지 |
+| 7 | 종중 | 사유지 |
+| 8 | 종교단체 | 사유지 |
+| 9 | 기타단체 | 사유지 |
+
+`posesnSeCodeNm`은 화면 표시용으로만 씁니다. 코드표에 없는 값이 오면 **확인 불가**로 처리하고,
+원본 코드와 명칭을 함께 노출합니다 (예: `확인 불가 (코드 12, ○○○)`). 신고 버튼은 국유지·공유지일
+때만 노출됩니다.
+
+**복수 레코드**: `totalCount`가 1보다 클 수 있습니다(건물 층별 등). 소유구분코드가 모두 같으면
+하나로 표시하고, 서로 다르면 소유구분을 단정하지 않고 "복수 소유" 안내와 함께 전체 목록을
+보여줍니다 (이 경우 신고 버튼도 노출하지 않습니다).
+
+**에러코드 처리** (`src/api/errors.ts`):
+
+| 브이월드 에러코드 | 사용자 안내 | 재시도 버튼 |
+|---|---|---|
+| `OVER_REQUEST_LIMIT` | 오늘 조회 한도를 초과했습니다. 내일 다시 시도해주세요. | 숨김 |
+| `INVALID_KEY`, `INCORRECT_KEY`, `UNAVAILABLE_KEY`, `URL_TYPE` | 서비스 설정 오류입니다. (원인 괄호 표기) | 숨김 |
+| `PARAM_REQUIRED`, `INVALID_TYPE`, `INVALID_RANGE` | 조회 요청 정보가 올바르지 않습니다. | 노출 |
+| `SYSTEM_ERROR`, `UNKNOWN_ERROR` | 브이월드 서버에 일시적인 문제가 있습니다. | 노출 |
+| 그 외 / 네트워크 실패 | 조회 중 오류가 발생했습니다 · 네트워크 연결을 확인해 주세요. | 노출 |
 
 ## 1. 준비물
 
@@ -66,7 +92,8 @@ app.config.js                Expo 설정 + .env → Constants.expoConfig.extra �
 scripts/test-land-api.mjs    0단계: 실제 키로 API 응답을 직접 확인하는 스크립트
 src/
   api/
-    config.ts                VWORLD_API_KEY 읽기 헬퍼
+    config.ts                VWORLD_API_KEY 읽기 헬퍼, 엔드포인트 상수
+    errors.ts                 브이월드 에러코드 → 사용자 안내 문구 매핑
     geocoder.ts               좌표 → 주소 (브이월드 지오코더 API 2.0)
     landOwnership.ts          좌표 → 필지(PNU) → 소유구분 조회
   constants/
@@ -102,8 +129,8 @@ GPS 좌표 또는 지도 탭 좌표
 |---|---|
 | 하천구역이라 지번이 없음 | PNU 조회 결과 없음 → `isNoCadastralInfo` → `ResultCard`의 안내 문구 |
 | 한 필지에 소유구분이 다른 복수 레코드 | `hasMixedOwnership` → 소유구분을 단정하지 않고 목록과 함께 안내 |
-| 소유구분 라벨이 알 수 없는 값 | `classifyOwnership`이 'unknown' 반환 → "확인 불가" 표시 |
-| API 조회 실패 | `ResultCard`의 오류 카드 + "다시 시도" 버튼 |
+| 코드표에 없는 소유구분코드 | `classifyOwnership`이 'unknown' 반환 → "확인 불가 (코드 N, 명칭)" 표시 |
+| API 조회 실패 | `errors.ts`가 에러코드별 안내 문구로 변환 → `ResultCard` 오류 카드 (한도 초과·설정 오류는 재시도 버튼 숨김) |
 | 위치 권한 거부 | `MapScreen`의 권한 안내 화면 + 설정 열기 버튼 |
 | GPS 정확도 낮음 (>50m) | `MapScreen` 상단 배너 + 지도에서 직접 선택 유도 |
 | API 키 미설정 | `landOwnership.ts`가 목(mock) 데이터 반환, UI에 항상 배지로 표시 |

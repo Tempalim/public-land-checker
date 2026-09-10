@@ -1,5 +1,6 @@
 import { AddressInfo, Coordinate, LandLookupError } from '../types/land';
 import { getVworldApiKey, hasVworldApiKey, VWORLD_GEOCODER_URL } from './config';
+import { toVworldApiError } from './errors';
 
 // 브이월드 지오코더(좌표 -> 주소) API 2.0 — 0단계 확인 완료
 // GET /req/address?service=address&request=getAddress&version=2.0
@@ -34,11 +35,25 @@ export async function reverseGeocode(
       };
     }
     const json = await response.json();
+
+    // 지오코더 오류 응답: { response: { status: "ERROR", error: { code, text } } }
+    if (json?.response?.status === 'ERROR' || json?.response?.error) {
+      const apiError = toVworldApiError(json?.response?.error?.code, json?.response?.error?.text);
+      return {
+        ok: false,
+        error: { code: apiError.code, message: apiError.message, rawCode: apiError.rawCode },
+      };
+    }
+
     return { ok: true, data: parseGeocoderResponse(json) };
   } catch (e) {
     return {
       ok: false,
-      error: { code: 'NETWORK', message: e instanceof Error ? e.message : '알 수 없는 오류' },
+      error: {
+        code: 'NETWORK',
+        message: '네트워크 연결을 확인한 뒤 다시 시도해 주세요.',
+        rawCode: e instanceof Error ? e.message : null,
+      },
     };
   }
 }

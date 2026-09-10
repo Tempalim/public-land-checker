@@ -39,9 +39,25 @@ export interface LandOwnershipResult {
   isMock: boolean;
 }
 
+export type LandLookupErrorCode =
+  | 'NETWORK'
+  | 'NO_API_KEY'
+  | 'NOT_FOUND'
+  /** 인증키/도메인 설정 오류 (INVALID_KEY, INCORRECT_KEY, UNAVAILABLE_KEY, URL_TYPE) */
+  | 'API_KEY'
+  /** 일일 조회 한도 초과 (OVER_REQUEST_LIMIT) */
+  | 'RATE_LIMIT'
+  /** 요청 파라미터 오류 (PARAM_REQUIRED, INVALID_TYPE, INVALID_RANGE) */
+  | 'PARAM'
+  /** 브이월드 서버 오류 (SYSTEM_ERROR, UNKNOWN_ERROR) */
+  | 'SERVER'
+  | 'UNKNOWN';
+
 export interface LandLookupError {
-  code: 'NETWORK' | 'NO_API_KEY' | 'NOT_FOUND' | 'UNKNOWN';
+  code: LandLookupErrorCode;
   message: string;
+  /** 브이월드 원본 에러코드 (디버깅용) */
+  rawCode?: string | null;
 }
 
 /** getPossessionAttr 응답의 possessions.field 원소 (0단계에서 확인된 필드만) */

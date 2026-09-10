@@ -4,7 +4,8 @@ import {
   LandOwnershipResult,
   PossessionField,
 } from '../types/land';
-import { classifyOwnership } from '../utils/ownership';
+import { classifyOwnership, normalizeOwnershipCode } from '../utils/ownership';
+import { toVworldApiError, VworldApiError } from './errors';
 import { reverseGeocode } from './geocoder';
 import {
   getVworldApiKey,
@@ -33,9 +34,16 @@ async function getPnuByPoint(longitude: number, latitude: number): Promise<strin
 
   const response = await fetch(`${VWORLD_DATA_URL}?${query.toString()}`);
   if (!response.ok) {
-    throw new Error(`필지 조회 실패 (HTTP ${response.status})`);
+    throw new VworldApiError('NETWORK', `필지 조회 실패 (HTTP ${response.status})`, null);
   }
+
   const json = await response.json();
+
+  // /req/data 오류 응답: { response: { status: "ERROR", error: { code, text } } }
+  if (json?.response?.status === 'ERROR' || json?.response?.error) {
+    throw toVworldApiError(json?.response?.error?.code, json?.response?.error?.text);
+  }
+
   const pnu = json?.response?.result?.featureCollection?.features?.[0]?.properties?.pnu;
   return typeof pnu === 'string' && pnu.length > 0 ? pnu : null;
 }
@@ -58,14 +66,20 @@ async function getPossessionAttr(
 
   const response = await fetch(`${VWORLD_POSSESSION_ATTR_URL}?${query.toString()}`);
   if (!response.ok) {
-    throw new Error(`토지소유정보 조회 실패 (HTTP ${response.status})`);
+    throw new VworldApiError('NETWORK', `토지소유정보 조회 실패 (HTTP ${response.status})`, null);
   }
 
   const json = await response.json();
   const possessions = json?.possessions;
 
-  if (possessions?.resultCode && possessions.resultCode !== '00') {
-    throw new Error(possessions.resultMsg ?? '토지소유정보 조회 실패');
+  // 에러코드는 possessions 안에 오기도 하고 최상위로 오기도 한다.
+  // 정상 응답의 resultCode는 "00"이고, 오류는 INVALID_KEY 같은 문자열 코드로 온다.
+  const resultCode: string | undefined = possessions?.resultCode ?? json?.resultCode;
+  if (resultCode && resultCode !== '00') {
+    throw toVworldApiError(resultCode, possessions?.resultMsg ?? json?.resultMsg);
+  }
+  if (json?.error?.code) {
+    throw toVworldApiError(json.error.code, json.error.text ?? json.error.message);
   }
 
   // field는 단건일 때 배열이 아닐 수 있어 방어적으로 배열화한다.
@@ -152,6 +166,14 @@ export async function lookupLandOwnership(
     }
 
     // 복수 레코드(건물 층별 등)에서 소유구분이 모두 같으면 하나로, 다르면 복수 소유로 안내한다.
+    // 판별 기준은 코드(posesnSeCode)이고, 라벨(posesnSeCodeNm)은 화면 표시용이다.
+    const ownershipCodes = Array.from(
+      new Set(
+        fields
+          .map((field) => normalizeOwnershipCode(field.posesnSeCode))
+          .filter((code): code is number => code != null),
+      ),
+    );
     const ownershipLabels = Array.from(
       new Set(
         fields
@@ -160,7 +182,10 @@ export async function lookupLandOwnership(
           .map((label) => label.trim()),
       ),
     );
-    const hasMixedOwnership = ownershipLabels.length > 1;
+    // 코드가 하나도 없으면 라벨 종류 수로 대신 판단한다.
+    const hasMixedOwnership =
+      ownershipCodes.length > 1 || (ownershipCodes.length === 0 && ownershipLabels.length > 1);
+    const representativeCode = firstNonEmpty(fields, 'posesnSeCode');
     const representativeLabel = ownershipLabels[0] ?? null;
 
     const area = firstNonEmpty(fields, 'lndpclAr');
@@ -169,9 +194,9 @@ export async function lookupLandOwnership(
       ok: true,
       data: {
         // 소유구분이 섞여 있으면 한쪽으로 단정하지 않고 '확인 불가'로 두고 목록을 함께 보여준다.
-        ownershipType: hasMixedOwnership ? 'unknown' : classifyOwnership(representativeLabel),
+        ownershipType: hasMixedOwnership ? 'unknown' : classifyOwnership(representativeCode),
         ownershipLabel: representativeLabel,
-        ownershipCode: firstNonEmpty(fields, 'posesnSeCode'),
+        ownershipCode: representativeCode,
         ownershipLabels,
         hasMixedOwnership,
         recordCount: totalCount,
@@ -188,9 +213,16 @@ export async function lookupLandOwnership(
       },
     };
   } catch (e) {
+    if (e instanceof VworldApiError) {
+      return { ok: false, error: { code: e.code, message: e.message, rawCode: e.rawCode } };
+    }
     return {
       ok: false,
-      error: { code: 'NETWORK', message: e instanceof Error ? e.message : '알 수 없는 오류' },
+      error: {
+        code: 'NETWORK',
+        message: '네트워크 연결을 확인한 뒤 다시 시도해 주세요.',
+        rawCode: e instanceof Error ? e.message : null,
+      },
     };
   }
 }

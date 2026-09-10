@@ -14,7 +14,7 @@ import { ReportGuideModal } from '../components/ReportGuideModal';
 import { ResultCard } from '../components/ResultCard';
 import { colors } from '../constants/colors';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
-import { Coordinate, LandOwnershipResult } from '../types/land';
+import { Coordinate, LandLookupError, LandOwnershipResult } from '../types/land';
 
 const LOW_ACCURACY_THRESHOLD_METERS = 50;
 const DEFAULT_CENTER: Coordinate = { latitude: 37.5665, longitude: 126.978 }; // 서울시청 (위치 권한 거부 시 기본값)
@@ -26,7 +26,7 @@ export function MapScreen() {
   const [selected, setSelected] = useState<Coordinate | null>(null);
   const [result, setResult] = useState<LandOwnershipResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookupError, setLookupError] = useState<LandLookupError | null>(null);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
 
@@ -42,7 +42,7 @@ export function MapScreen() {
       setResult(response.data);
     } else {
       setResult(null);
-      setLookupError(response.error.message);
+      setLookupError(response.error);
     }
   }, []);
 
@@ -110,7 +110,7 @@ export function MapScreen() {
         <View style={styles.sheetWrapper}>
           <ResultCard
             loading={loading}
-            errorMessage={lookupError}
+            error={lookupError}
             result={result}
             onRetry={() => runLookup(selected ?? coordinate ?? DEFAULT_CENTER)}
             onReportPress={() => setReportModalVisible(true)}

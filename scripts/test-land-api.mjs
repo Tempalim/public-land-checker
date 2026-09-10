@@ -73,10 +73,23 @@ if (!pnu) {
 
   const rawField = possessionJson?.possessions?.field;
   const fields = Array.isArray(rawField) ? rawField : rawField ? [rawField] : [];
-  const labels = [...new Set(fields.map((f) => f?.posesnSeCodeNm).filter(Boolean))];
+
+  // 앱과 동일한 코드표 (국가중점데이터 컬럼정의서)
+  const TYPE_BY_CODE = {
+    0: '확인 불가', 1: '사유지', 2: '국유지', 3: '사유지', 4: '공유지',
+    5: '공유지', 6: '사유지', 7: '사유지', 8: '사유지', 9: '사유지',
+  };
+  const codes = [
+    ...new Set(fields.map((f) => Number.parseInt(String(f?.posesnSeCode ?? ''), 10)).filter((n) => !Number.isNaN(n))),
+  ];
 
   console.log('\n--- 요약 ---');
   console.log(`totalCount: ${possessionJson?.possessions?.totalCount ?? '?'} (레코드 ${fields.length}건)`);
-  console.log(`소유구분: ${labels.join(', ') || '없음'}${labels.length > 1 ? '  ← 복수 소유' : ''}`);
+  for (const field of fields) {
+    const code = Number.parseInt(String(field?.posesnSeCode ?? ''), 10);
+    const classified = TYPE_BY_CODE[code] ?? '확인 불가';
+    console.log(`  ${field?.posesnSeCode ?? '-'} (${field?.posesnSeCodeNm ?? '-'}) → ${classified}`);
+  }
+  if (codes.length > 1) console.log('  ← 소유구분이 서로 다름: 복수 소유로 안내됨');
   console.log(`지목: ${fields[0]?.lndcgrCodeNm ?? '-'} / 면적: ${fields[0]?.lndpclAr ?? '-'}㎡`);
 }

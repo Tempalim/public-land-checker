@@ -1,13 +1,14 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { isRetryable } from '../api/errors';
 import { colors } from '../constants/colors';
-import { LandOwnershipResult } from '../types/land';
+import { LandLookupError, LandOwnershipResult } from '../types/land';
 import { isReportable, ownershipDisplayName } from '../utils/ownership';
 import { Disclaimer } from './Disclaimer';
 
 interface ResultCardProps {
   loading: boolean;
-  errorMessage: string | null;
+  error: LandLookupError | null;
   result: LandOwnershipResult | null;
   onRetry: () => void;
   onReportPress: () => void;
@@ -20,7 +21,7 @@ const BADGE_BY_TYPE: Record<string, { emoji: string; label: string; fg: string; 
   unknown: { emoji: '⚪️', label: '소유구분을 확인할 수 없습니다', fg: colors.unknown, bg: colors.unknownBg },
 };
 
-export function ResultCard({ loading, errorMessage, result, onRetry, onReportPress }: ResultCardProps) {
+export function ResultCard({ loading, error, result, onRetry, onReportPress }: ResultCardProps) {
   if (loading) {
     return (
       <View style={styles.card}>
@@ -30,14 +31,19 @@ export function ResultCard({ loading, errorMessage, result, onRetry, onReportPre
     );
   }
 
-  if (errorMessage) {
+  if (error) {
     return (
       <View style={styles.card}>
-        <Text style={styles.errorTitle}>조회에 실패했습니다</Text>
-        <Text style={styles.errorMessage}>{errorMessage}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
-          <Text style={styles.retryButtonText}>다시 시도</Text>
-        </TouchableOpacity>
+        <Text style={styles.errorTitle}>
+          {error.code === 'RATE_LIMIT' ? '조회 한도를 초과했습니다' : '조회에 실패했습니다'}
+        </Text>
+        <Text style={styles.errorMessage}>{error.message}</Text>
+        {/* 설정 오류나 한도 초과는 다시 눌러도 결과가 같으므로 재시도 버튼을 숨긴다. */}
+        {isRetryable(error.code) && (
+          <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+            <Text style={styles.retryButtonText}>다시 시도</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -88,7 +94,7 @@ export function ResultCard({ loading, errorMessage, result, onRetry, onReportPre
         value={
           result.hasMixedOwnership
             ? result.ownershipLabels.join(', ')
-            : formatOwnership(result.ownershipType, result.ownershipLabel)
+            : formatOwnership(result.ownershipType, result.ownershipLabel, result.ownershipCode)
         }
       />
       {result.areaSquareMeters != null && !Number.isNaN(result.areaSquareMeters) && (
@@ -103,11 +109,25 @@ export function ResultCard({ loading, errorMessage, result, onRetry, onReportPre
   );
 }
 
-/** 분류 결과와 원문 라벨을 함께 보여준다 (예: "국유지 (국유지)" 대신 "국유지", "확인 불가 (기타)") */
-function formatOwnership(type: LandOwnershipResult['ownershipType'], label: string | null): string {
+/**
+ * 분류 결과와 원문을 함께 보여준다.
+ * 코드표에 없는 값이면 판단을 감추지 않고 원본 코드/명칭을 함께 노출한다.
+ * 예) "사유지 (개인)", "확인 불가 (코드 0, 일본인, 창씨명등)"
+ */
+function formatOwnership(
+  type: LandOwnershipResult['ownershipType'],
+  label: string | null,
+  code: string | null,
+): string {
   const display = ownershipDisplayName(type);
-  if (!label) return display;
-  return label === display ? display : `${display} (${label})`;
+
+  if (type === 'unknown') {
+    const detail = [code ? `코드 ${code}` : null, label].filter(Boolean).join(', ');
+    return detail ? `${display} (${detail})` : display;
+  }
+
+  if (!label || label === display) return display;
+  return `${display} (${label})`;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
