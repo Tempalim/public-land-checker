@@ -2,7 +2,7 @@ import * as Linking from 'expo-linking';
 import React from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { colors } from '../constants/colors';
-import { SAFETY_REPORT_APP_SCHEME, SAFETY_REPORT_STORE_URL, SAFETY_REPORT_WEB_URL } from '../constants/links';
+import { SAFETY_REPORT_STORE_URL, SAFETY_REPORT_WEB_URL } from '../constants/links';
 
 interface ReportGuideModalProps {
   visible: boolean;
@@ -16,17 +16,15 @@ const CHECKLIST = [
 ];
 
 export function ReportGuideModal({ visible, onClose }: ReportGuideModalProps) {
-  const openSafetyReport = async () => {
+  const openSafetyReportWeb = async () => {
     try {
-      const canOpenApp = await Linking.canOpenURL(SAFETY_REPORT_APP_SCHEME);
-      if (canOpenApp) {
-        await Linking.openURL(SAFETY_REPORT_APP_SCHEME);
-        return;
-      }
+      await Linking.openURL(SAFETY_REPORT_WEB_URL);
     } catch {
-      // 앱이 없거나 스킴을 열 수 없는 경우 아래로 진행
+      await Linking.openURL(SAFETY_REPORT_STORE_URL);
     }
+  };
 
+  const openSafetyReportStore = async () => {
     try {
       await Linking.openURL(SAFETY_REPORT_STORE_URL);
     } catch {
@@ -47,12 +45,16 @@ export function ReportGuideModal({ visible, onClose }: ReportGuideModalProps) {
             </View>
           ))}
 
-          <TouchableOpacity style={styles.primaryButton} onPress={openSafetyReport}>
-            <Text style={styles.primaryButtonText}>안전신문고 열기</Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={openSafetyReportWeb}>
+            <Text style={styles.primaryButtonText}>안전신문고 웹에서 신고하기</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.storeButton} onPress={openSafetyReportStore}>
+            <Text style={styles.storeButtonText}>안전신문고 앱 설치하기</Text>
           </TouchableOpacity>
 
           <Text style={styles.storeNotice}>
-            앱이 설치되어 있지 않다면 스토어로 이동해 설치 후 신고할 수 있어요.
+            공식 안전신문고 홈페이지 연결을 기본 경로로 사용합니다.
           </Text>
 
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
@@ -117,6 +119,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  storeButton: {
+    marginTop: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  storeButtonText: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 14,
   },
   storeNotice: {
     marginTop: 10,
