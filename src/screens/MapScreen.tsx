@@ -1,7 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Linking,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -29,6 +31,8 @@ export function MapScreen() {
   const [lookupError, setLookupError] = useState<LandLookupError | null>(null);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   const runLookup = useCallback(async (target: Coordinate) => {
     setLoading(true);
@@ -58,6 +62,13 @@ export function MapScreen() {
     setLookupError(null);
   };
 
+  const handleUseCurrentLocation = () => {
+    setSelected(null);
+    setSheetVisible(false);
+    setLookupError(null);
+    requestLocation();
+  };
+
   const center = selected ?? coordinate ?? DEFAULT_CENTER;
   const marker = selected ?? coordinate;
   const isLowAccuracy = accuracy != null && accuracy > LOW_ACCURACY_THRESHOLD_METERS;
@@ -73,14 +84,48 @@ export function MapScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={StyleSheet.absoluteFill}>
-        <MapWebView apiKey={getVworldApiKey()} center={center} marker={marker} onMapTap={handleMapTap} />
+        <MapWebView
+          apiKey={getVworldApiKey()}
+          center={center}
+          marker={marker}
+          onMapTap={handleMapTap}
+          onMapLoading={() => {
+            setMapReady(false);
+            setMapError(null);
+          }}
+          onMapReady={() => {
+            setMapReady(true);
+            setMapError(null);
+          }}
+          onMapError={(message) => {
+            setMapReady(false);
+            setMapError(message);
+          }}
+        />
       </View>
+
+      {!mapReady && !mapError && hasVworldApiKey() && (
+        <View style={styles.mapLoadingOverlay} pointerEvents="none">
+          <View style={styles.mapLoadingCard}>
+            <ActivityIndicator color={colors.national} />
+            <Text style={styles.mapLoadingText}>지도 불러오는 중…</Text>
+          </View>
+        </View>
+      )}
 
       <View style={styles.noticeStack} pointerEvents="box-none">
         {!hasVworldApiKey() && (
           <View style={styles.topBanner}>
             <Text style={styles.topBannerText}>
               VWORLD_API_KEY가 없어 조회 결과는 임시 데이터입니다.
+            </Text>
+          </View>
+        )}
+
+        {mapError && (
+          <View style={styles.mapErrorBanner}>
+            <Text style={styles.topBannerText}>
+              지도를 불러오지 못했습니다. 네트워크와 브이월드 API 키 설정을 확인해 주세요.
             </Text>
           </View>
         )}
@@ -122,6 +167,22 @@ export function MapScreen() {
       {!sheetVisible && (
         <TouchableOpacity
           accessibilityRole="button"
+          disabled={status === 'requesting'}
+          style={[
+            styles.currentLocationButton,
+            status === 'requesting' && styles.currentLocationButtonDisabled,
+          ]}
+          onPress={handleUseCurrentLocation}
+        >
+          <Text style={styles.currentLocationButtonText}>
+            {status === 'requesting' ? '위치 확인 중' : '내 위치'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {!sheetVisible && (
+        <TouchableOpacity
+          accessibilityRole="button"
           disabled={!canCheck || loading}
           style={[styles.checkButton, (!canCheck || loading) && styles.checkButtonDisabled]}
           onPress={handleCheckHere}
@@ -132,16 +193,18 @@ export function MapScreen() {
 
       {sheetVisible && (
         <View style={styles.sheetWrapper}>
-          <ResultCard
-            loading={loading}
-            error={lookupError}
-            result={result}
-            onRetry={() => {
-              const target = selected ?? coordinate;
-              if (target) runLookup(target);
-            }}
-            onReportPress={() => setReportModalVisible(true)}
-          />
+          <ScrollView style={styles.resultScroll} bounces={false}>
+            <ResultCard
+              loading={loading}
+              error={lookupError}
+              result={result}
+              onRetry={() => {
+                const target = selected ?? coordinate;
+                if (target) runLookup(target);
+              }}
+              onReportPress={() => setReportModalVisible(true)}
+            />
+          </ScrollView>
           <TouchableOpacity style={styles.dismissSheet} onPress={() => setSheetVisible(false)}>
             <Text style={styles.dismissSheetText}>지도로 돌아가기</Text>
           </TouchableOpacity>
@@ -158,6 +221,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  mapLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapLoadingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  mapLoadingText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   noticeStack: {
     position: 'absolute',
     top: 12,
@@ -167,6 +253,11 @@ const styles = StyleSheet.create({
   },
   topBanner: {
     backgroundColor: 'rgba(31,41,55,0.92)',
+    borderRadius: 10,
+    padding: 10,
+  },
+  mapErrorBanner: {
+    backgroundColor: 'rgba(217,48,37,0.92)',
     borderRadius: 10,
     padding: 10,
   },
@@ -210,6 +301,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  currentLocationButton: {
+    position: 'absolute',
+    right: 16,
+    bottom: 92,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  currentLocationButtonDisabled: {
+    opacity: 0.6,
+  },
+  currentLocationButtonText: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 12,
+  },
   checkButton: {
     position: 'absolute',
     bottom: 32,
@@ -239,6 +354,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    maxHeight: '82%',
+  },
+  resultScroll: {
+    flexShrink: 1,
   },
   dismissSheet: {
     backgroundColor: colors.background,

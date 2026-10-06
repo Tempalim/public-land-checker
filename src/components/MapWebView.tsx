@@ -7,6 +7,9 @@ interface MapWebViewProps {
   center: Coordinate;
   marker: Coordinate | null;
   onMapTap: (coordinate: Coordinate) => void;
+  onMapReady?: () => void;
+  onMapLoading?: () => void;
+  onMapError?: (message: string) => void;
 }
 
 interface MapTapPayload {
@@ -110,7 +113,15 @@ function isMapTapPayload(payload: unknown): payload is MapTapPayload {
   );
 }
 
-export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps) {
+export function MapWebView({
+  apiKey,
+  center,
+  marker,
+  onMapTap,
+  onMapReady,
+  onMapLoading,
+  onMapError,
+}: MapWebViewProps) {
   const html = useMemo(
     () => buildHtml(apiKey, center, marker),
     [apiKey, center.latitude, center.longitude, marker?.latitude, marker?.longitude],
@@ -121,6 +132,20 @@ export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps
       const payload: unknown = JSON.parse(event.nativeEvent.data);
       if (isMapTapPayload(payload)) {
         onMapTap({ latitude: payload.latitude, longitude: payload.longitude });
+        return;
+      }
+
+      if (typeof payload === 'object' && payload !== null && 'type' in payload) {
+        const type = (payload as { type?: unknown }).type;
+        if (type === 'ready') {
+          onMapReady?.();
+          return;
+        }
+
+        if (type === 'error') {
+          const message = (payload as { message?: unknown }).message;
+          onMapError?.(typeof message === 'string' ? message : '지도에서 오류가 발생했습니다.');
+        }
       }
     } catch {
       // malformed WebView messages are ignored
@@ -132,6 +157,9 @@ export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps
       originWhitelist={['*']}
       source={{ html }}
       onMessage={handleMessage}
+      onLoadStart={onMapLoading}
+      onError={() => onMapError?.('지도를 불러오지 못했습니다.')}
+      onHttpError={() => onMapError?.('지도 서버 응답 오류가 발생했습니다.')}
       javaScriptEnabled
       domStorageEnabled
       style={{ flex: 1 }}
