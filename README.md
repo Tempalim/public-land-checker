@@ -100,7 +100,7 @@ src/
     landOwnership.ts          좌표 → 필지(PNU) → 소유구분 조회
   constants/
     colors.ts                 국유/공유(초록) · 사유(주황) · 확인불가(회색) 색상 규칙
-    links.ts                  안전신문고 딥링크/웹/스토어 링크, 면책 문구
+    links.ts                  안전신문고 공식 웹/스토어 링크, 면책 문구
   hooks/
     useCurrentLocation.ts     위치 권한 요청 + GPS 좌표/정확도
   components/
@@ -122,7 +122,7 @@ GPS 좌표 또는 지도 탭 좌표
   → landOwnership.ts                 PNU → getPossessionAttr 로 소유구분/지목/면적 조회
   → utils/ownership.ts               posesnSeCode 코드값을 national/public/private로 분류
   → ResultCard                       결과 카드 표시, 국/공유지면 신고 버튼 노출
-  → ReportGuideModal                 체크리스트 안내 후 안전신문고 앱/스토어/웹 연결
+  → ReportGuideModal                 체크리스트 안내 후 안전신문고 공식 웹/스토어 연결
 ```
 
 ## 5. 예외 처리 구현 현황
@@ -161,11 +161,13 @@ GPS 좌표 또는 지도 탭 좌표
 - [ ] 9단계 — 디자인 다듬기 (실기기 테스트 후 진행 권장)
 - [x] MVP 하드닝 1차 — 위치 권한 fallback, PNU 미확인 시 오판 방지, 출처 표기, 지도 좌표 검증, CI 타입체크
 - [x] API 하드닝 2차 — 좌표 범위 검증, 소유정보 페이지네이션, 누락/미분류 레코드 보수 처리
+- [x] UX 하드닝 3차 — 지도 로딩/오류 표시, 내 위치 복귀, 긴 결과 스크롤, 안전신문고 공식 웹 우선 연결
 
 **중요**: API 사양은 0단계에서 확인되었지만, 코드가 실기기에서 동작하는지는 아직 확인되지
 않았습니다 (이 저장소가 만들어진 환경에서는 vworld.kr 호출과 실물 기기 테스트가 불가능).
-`npm run test-land-api`로 응답을 먼저 확인한 뒤 Expo Go로 각 화면을 눌러보세요. 특히 지도 마커
-표시(`vw.ol3.Overlay`)와 안전신문고 딥링크 스킴은 미검증 상태입니다.
+`npm run test-land-api`로 응답을 먼저 확인한 뒤 Expo Go로 각 화면을 눌러보세요. 지도 마커
+표시(`vw.ol3.Overlay`)는 실기기에서 추가 검증이 필요합니다. 안전신문고 연결은 공식 웹 URL을
+기본 경로로 사용하고 앱 설치 버튼은 스토어 URL로 연결합니다.
 
 ## 8. 환경변수
 
