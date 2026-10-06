@@ -74,6 +74,7 @@ VWORLD_API_KEY=발급받은키 node scripts/test-land-api.mjs 126.978 37.5665
 ```bash
 npm install
 cp .env.example .env   # VWORLD_API_KEY=발급받은키 입력
+npm run typecheck  # TypeScript 정적 검사
 npm run start
 ```
 
@@ -118,7 +119,7 @@ src/
 GPS 좌표 또는 지도 탭 좌표
   → geocoder.ts + landOwnership.ts   지번주소 조회와 PNU 조회를 병렬 호출
   → landOwnership.ts                 PNU → getPossessionAttr 로 소유구분/지목/면적 조회
-  → utils/ownership.ts               posesnSeCodeNm(예: "개인")을 national/public/private로 분류
+  → utils/ownership.ts               posesnSeCode 코드값을 national/public/private로 분류
   → ResultCard                       결과 카드 표시, 국/공유지면 신고 버튼 노출
   → ReportGuideModal                 체크리스트 안내 후 안전신문고 앱/스토어/웹 연결
 ```
@@ -127,11 +128,11 @@ GPS 좌표 또는 지도 탭 좌표
 
 | 상황 | 구현 위치 |
 |---|---|
-| 하천구역이라 지번이 없음 | PNU 조회 결과 없음 → `isNoCadastralInfo` → `ResultCard`의 안내 문구 |
+| PNU/지적 정보가 없음 | `isNoCadastralInfo` → 소유구분을 단정하지 않고 안내, 신고 버튼 숨김 |
 | 한 필지에 소유구분이 다른 복수 레코드 | `hasMixedOwnership` → 소유구분을 단정하지 않고 목록과 함께 안내 |
 | 코드표에 없는 소유구분코드 | `classifyOwnership`이 'unknown' 반환 → "확인 불가 (코드 N, 명칭)" 표시 |
 | API 조회 실패 | `errors.ts`가 에러코드별 안내 문구로 변환 → `ResultCard` 오류 카드 (한도 초과·설정 오류는 재시도 버튼 숨김) |
-| 위치 권한 거부 | `MapScreen`의 권한 안내 화면 + 설정 열기 버튼 |
+| 위치 권한 거부 | 앱을 막지 않고 지도 수동 선택 유지 + 권한 안내/설정 버튼 제공 |
 | GPS 정확도 낮음 (>50m) | `MapScreen` 상단 배너 + 지도에서 직접 선택 유도 |
 | API 키 미설정 | `landOwnership.ts`가 목(mock) 데이터 반환, UI에 항상 배지로 표시 |
 
@@ -142,8 +143,7 @@ GPS 좌표 또는 지도 탭 좌표
 > 본 정보는 브이월드에서 제공하는 토지소유정보를 기반으로 하며, 실제 현황과 다를 수 있습니다.
 > 참고용으로만 활용해 주세요. 정확한 정보는 해당 지자체에 문의하시기 바랍니다.
 
-브이월드 이용약관상 출처 표시가 필요할 수 있으므로, 앱 정보 화면을 추가할 때
-`VWORLD_ATTRIBUTION` 문구를 함께 노출하세요.
+`Disclaimer`에서 `VWORLD_ATTRIBUTION` 문구도 함께 표시합니다.
 
 ## 7. 개발 순서 진행 상황
 
@@ -157,6 +157,7 @@ GPS 좌표 또는 지도 탭 좌표
 - [x] 7단계 — 안전신문고 연결 (`ReportGuideModal`)
 - [x] 8단계 — 예외 처리 + 면책 문구
 - [ ] 9단계 — 디자인 다듬기 (실기기 테스트 후 진행 권장)
+- [x] MVP 하드닝 1차 — 위치 권한 fallback, PNU 미확인 시 오판 방지, 출처 표기, 지도 좌표 검증, CI 타입체크
 
 **중요**: API 사양은 0단계에서 확인되었지만, 코드가 실기기에서 동작하는지는 아직 확인되지
 않았습니다 (이 저장소가 만들어진 환경에서는 vworld.kr 호출과 실물 기기 테스트가 불가능).
