@@ -16,13 +16,15 @@ export interface LandOwnershipResult {
   ownershipType: OwnershipType;
   /** 소유구분 원문 (예: "개인", "국유지"). 복수 레코드면 대표값 */
   ownershipLabel: string | null;
-  /** 소유구분코드 원문 (예: "01"). 코드 매핑 미확인이라 표시/디버깅용으로만 보관 */
+  /** 소유구분코드 원문 (예: "01") */
   ownershipCode: string | null;
-  /** 복수 레코드에서 서로 다른 소유구분이 섞여 있을 때의 전체 목록 */
+  /** 복수 레코드에서 확인된 소유구분 명칭 목록 */
   ownershipLabels: string[];
-  /** 소유구분이 서로 다른 레코드가 섞여 있는지 (복수 소유 안내용) */
+  /** 소유구분 코드가 서로 다른 레코드가 섞여 있는지 */
   hasMixedOwnership: boolean;
-  /** 조회된 소유 레코드 수 (totalCount) */
+  /** 누락/미분류 코드 또는 미수집 페이지가 있어 안전하게 단정할 수 없는지 */
+  hasIncompleteOwnership: boolean;
+  /** API가 보고한 전체 소유 레코드 수 */
   recordCount: number;
   /** 지목 (lndcgrCodeNm, 예: 임야, 대, 전, 답) */
   landCategory: string | null;
@@ -33,7 +35,7 @@ export interface LandOwnershipResult {
   /** 19자리 PNU 코드 */
   pnu: string | null;
   address: AddressInfo;
-  /** 하천구역 등 지적 정보가 없는 특수 케이스 */
+  /** 선택 지점에서 PNU/지적 정보를 찾지 못한 경우 */
   isNoCadastralInfo: boolean;
   /** API 키 미설정 등으로 실제 데이터가 아닌 안내용 임시 데이터인 경우 */
   isMock: boolean;
@@ -43,13 +45,9 @@ export type LandLookupErrorCode =
   | 'NETWORK'
   | 'NO_API_KEY'
   | 'NOT_FOUND'
-  /** 인증키/도메인 설정 오류 (INVALID_KEY, INCORRECT_KEY, UNAVAILABLE_KEY, URL_TYPE) */
   | 'API_KEY'
-  /** 일일 조회 한도 초과 (OVER_REQUEST_LIMIT) */
   | 'RATE_LIMIT'
-  /** 요청 파라미터 오류 (PARAM_REQUIRED, INVALID_TYPE, INVALID_RANGE) */
   | 'PARAM'
-  /** 브이월드 서버 오류 (SYSTEM_ERROR, UNKNOWN_ERROR) */
   | 'SERVER'
   | 'UNKNOWN';
 
@@ -60,7 +58,7 @@ export interface LandLookupError {
   rawCode?: string | null;
 }
 
-/** getPossessionAttr 응답의 possessions.field 원소 (0단계에서 확인된 필드만) */
+/** getPossessionAttr 응답의 possessions.field 원소 */
 export interface PossessionField {
   posesnSeCode?: string;
   posesnSeCodeNm?: string;
