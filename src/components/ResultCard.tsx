@@ -18,7 +18,12 @@ const BADGE_BY_TYPE: Record<string, { emoji: string; label: string; fg: string; 
   national: { emoji: '🟢', label: '국유지입니다', fg: colors.national, bg: colors.nationalBg },
   public: { emoji: '🟢', label: '공유지입니다', fg: colors.public, bg: colors.publicBg },
   private: { emoji: '🟠', label: '사유지입니다', fg: colors.private, bg: colors.privateBg },
-  unknown: { emoji: '⚪️', label: '소유구분을 확인할 수 없습니다', fg: colors.unknown, bg: colors.unknownBg },
+  unknown: {
+    emoji: '⚪️',
+    label: '소유구분을 확인할 수 없습니다',
+    fg: colors.unknown,
+    bg: colors.unknownBg,
+  },
 };
 
 export function ResultCard({ loading, error, result, onRetry, onReportPress }: ResultCardProps) {
@@ -38,7 +43,6 @@ export function ResultCard({ loading, error, result, onRetry, onReportPress }: R
           {error.code === 'RATE_LIMIT' ? '조회 한도를 초과했습니다' : '조회에 실패했습니다'}
         </Text>
         <Text style={styles.errorMessage}>{error.message}</Text>
-        {/* 설정 오류나 한도 초과는 다시 눌러도 결과가 같으므로 재시도 버튼을 숨긴다. */}
         {isRetryable(error.code) && (
           <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
             <Text style={styles.retryButtonText}>다시 시도</Text>
@@ -48,17 +52,19 @@ export function ResultCard({ loading, error, result, onRetry, onReportPress }: R
     );
   }
 
-  if (!result) {
-    return null;
-  }
+  if (!result) return null;
 
   if (result.isNoCadastralInfo) {
     return (
       <View style={styles.card}>
-        <Text style={styles.riverNotice}>
-          하천구역으로 지적 정보가 없습니다. 하천은 원칙적으로 국유입니다.
-        </Text>
-        <ReportSection onPress={onReportPress} />
+        <View style={styles.noCadastralNotice}>
+          <Text style={styles.noCadastralTitle}>필지 정보를 확인할 수 없습니다</Text>
+          <Text style={styles.noCadastralText}>
+            선택한 지점에서 PNU(필지고유번호)를 찾지 못했습니다. 하천·도로·지적 경계 밖 등의
+            경우일 수 있으며, 이 결과만으로 국유지·공유지·사유지를 판단할 수 없습니다.
+          </Text>
+        </View>
+        {result.address.jibunAddress && <InfoRow label="주소" value={result.address.jibunAddress} />}
         <Disclaimer />
       </View>
     );
@@ -109,11 +115,6 @@ export function ResultCard({ loading, error, result, onRetry, onReportPress }: R
   );
 }
 
-/**
- * 분류 결과와 원문을 함께 보여준다.
- * 코드표에 없는 값이면 판단을 감추지 않고 원본 코드/명칭을 함께 노출한다.
- * 예) "사유지 (개인)", "확인 불가 (코드 0, 일본인, 창씨명등)"
- */
 function formatOwnership(
   type: LandOwnershipResult['ownershipType'],
   label: string | null,
@@ -190,13 +191,22 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '600',
   },
-  riverNotice: {
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: colors.nationalBg,
+  noCadastralNotice: {
+    backgroundColor: colors.unknownBg,
     padding: 12,
     borderRadius: 10,
     marginBottom: 8,
+  },
+  noCadastralTitle: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  noCadastralText: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
   },
   badgeRow: {
     borderRadius: 10,

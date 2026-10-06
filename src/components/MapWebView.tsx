@@ -9,12 +9,17 @@ interface MapWebViewProps {
   onMapTap: (coordinate: Coordinate) => void;
 }
 
+interface MapTapPayload {
+  type: 'tap';
+  latitude: number;
+  longitude: number;
+}
+
 function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null) {
+  const escapedApiKey = encodeURIComponent(apiKey);
+
   const markerScript = marker
     ? `
-      // 참고: vw.ol3.Overlay는 브이월드 2D 지도 API 샘플 예제의 마커 표시 방식을 따른 것으로,
-      // API 버전에 따라 클래스 경로가 다를 수 있다. 마커가 보이지 않으면 브이월드
-      // "2D 지도 API" 레퍼런스의 마커/오버레이 예제를 확인해 이 부분만 교체하면 된다.
       try {
         var markerEl = document.createElement("div");
         markerEl.style.cssText = "font-size:30px; line-height:30px; transform: translate(-50%, -90%);";
@@ -24,7 +29,11 @@ function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null
           "EPSG:4326",
           "EPSG:900913"
         );
-        var markerOverlay = new vw.ol3.Overlay({ element: markerEl, position: markerCoord, positioning: "bottom-center" });
+        var markerOverlay = new vw.ol3.Overlay({
+          element: markerEl,
+          position: markerCoord,
+          positioning: "bottom-center"
+        });
         map.olMap.addOverlay(markerOverlay);
       } catch (markerErr) {
         post({ type: "error", message: "marker: " + String(markerErr) });
@@ -40,7 +49,7 @@ function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null
   <style>
     html, body, #vmap { margin: 0; padding: 0; width: 100%; height: 100%; }
   </style>
-  <script src="https://map.vworld.kr/js/webglMapInit.js.do?apiKey=${apiKey}"></script>
+  <script src="https://map.vworld.kr/js/webglMapInit.js.do?apiKey=${escapedApiKey}"></script>
 </head>
 <body>
   <div id="vmap"></div>
@@ -70,7 +79,6 @@ function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null
       });
 
       ${markerScript}
-
       post({ type: "ready" });
     } catch (err) {
       post({ type: "error", message: String(err) });
@@ -78,6 +86,28 @@ function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null
   </script>
 </body>
 </html>`;
+}
+
+function isMapTapPayload(payload: unknown): payload is MapTapPayload {
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidate = payload as {
+    type?: unknown;
+    latitude?: unknown;
+    longitude?: unknown;
+  };
+
+  return (
+    candidate.type === 'tap' &&
+    typeof candidate.latitude === 'number' &&
+    Number.isFinite(candidate.latitude) &&
+    candidate.latitude >= -90 &&
+    candidate.latitude <= 90 &&
+    typeof candidate.longitude === 'number' &&
+    Number.isFinite(candidate.longitude) &&
+    candidate.longitude >= -180 &&
+    candidate.longitude <= 180
+  );
 }
 
 export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps) {
@@ -88,12 +118,12 @@ export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps
 
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
-      const payload = JSON.parse(event.nativeEvent.data);
-      if (payload.type === 'tap') {
+      const payload: unknown = JSON.parse(event.nativeEvent.data);
+      if (isMapTapPayload(payload)) {
         onMapTap({ latitude: payload.latitude, longitude: payload.longitude });
       }
     } catch {
-      // ignore malformed messages
+      // malformed WebView messages are ignored
     }
   };
 
