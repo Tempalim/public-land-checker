@@ -14,13 +14,15 @@ import {
   VWORLD_POSSESSION_ATTR_URL,
 } from './config';
 
-// 0단계 확인 완료된 사양
-// 1) 좌표 → PNU : /req/data GetFeature (연속지적도 LP_PA_CBND_BUBUN)
-// 2) PNU → 소유구분 : /ned/data/getPossessionAttr
 const CADASTRAL_PARCEL_LAYER = 'LP_PA_CBND_BUBUN';
 const POSSESSION_PAGE_SIZE = 100;
+const MAX_POSSESSION_PAGES = 20;
 
-/** 좌표가 속한 필지의 PNU를 조회한다. */
+interface PossessionPage {
+  fields: PossessionField[];
+  totalCount: number;
+}
+
 async function getPnuByPoint(longitude: number, latitude: number): Promise<string | null> {
   const query = new URLSearchParams({
     service: 'data',
@@ -39,7 +41,6 @@ async function getPnuByPoint(longitude: number, latitude: number): Promise<strin
 
   const json = await response.json();
 
-  // /req/data 오류 응답: { response: { status: "ERROR", error: { code, text } } }
   if (json?.response?.status === 'ERROR' || json?.response?.error) {
     throw toVworldApiError(json?.response?.error?.code, json?.response?.error?.text);
   }
@@ -48,32 +49,27 @@ async function getPnuByPoint(longitude: number, latitude: number): Promise<strin
   return typeof pnu === 'string' && pnu.length > 0 ? pnu : null;
 }
 
-/**
- * PNU로 토지소유정보 속성을 조회한다.
- * 응답: { possessions: { field: [...], pageNo, totalCount, numOfRows, resultCode, resultMsg } }
- * 건물 층별 등으로 레코드가 여러 건일 수 있어 목록 전체를 돌려준다.
- */
-async function getPossessionAttr(
-  pnu: string,
-): Promise<{ fields: PossessionField[]; totalCount: number }> {
+async function getPossessionPage(pnu: string, pageNo: number): Promise<PossessionPage> {
   const query = new URLSearchParams({
     pnu,
     format: 'json',
     numOfRows: String(POSSESSION_PAGE_SIZE),
-    pageNo: '1',
+    pageNo: String(pageNo),
     key: getVworldApiKey(),
   });
 
   const response = await fetch(`${VWORLD_POSSESSION_ATTR_URL}?${query.toString()}`);
   if (!response.ok) {
-    throw new VworldApiError('NETWORK', `토지소유정보 조회 실패 (HTTP ${response.status})`, null);
+    throw new VworldApiError(
+      'NETWORK',
+      `토지소유정보 조회 실패 (HTTP ${response.status})`,
+      null,
+    );
   }
 
   const json = await response.json();
   const possessions = json?.possessions;
 
-  // 에러코드는 possessions 안에 오기도 하고 최상위로 오기도 한다.
-  // 정상 응답의 resultCode는 "00"이고, 오류는 INVALID_KEY 같은 문자열 코드로 온다.
   const resultCode: string | undefined = possessions?.resultCode ?? json?.resultCode;
   if (resultCode && resultCode !== '00') {
     throw toVworldApiError(resultCode, possessions?.resultMsg ?? json?.resultMsg);
@@ -82,7 +78,6 @@ async function getPossessionAttr(
     throw toVworldApiError(json.error.code, json.error.text ?? json.error.message);
   }
 
-  // field는 단건일 때 배열이 아닐 수 있어 방어적으로 배열화한다.
   const rawField = possessions?.field;
   const fields: PossessionField[] = Array.isArray(rawField)
     ? rawField
@@ -94,6 +89,31 @@ async function getPossessionAttr(
   return { fields, totalCount };
 }
 
+async function getPossessionAttr(
+  pnu: string,
+): Promise<{ fields: PossessionField[]; totalCount: number; isTruncated: boolean }> {
+  const firstPage = await getPossessionPage(pnu, 1);
+  const fields = [...firstPage.fields];
+  const totalCount = firstPage.totalCount;
+
+  let pageNo = 2;
+  while (
+    fields.length < totalCount &&
+    pageNo <= MAX_POSSESSION_PAGES
+  ) {
+    const page = await getPossessionPage(pnu, pageNo);
+    if (page.fields.length === 0) break;
+    fields.push(...page.fields);
+    pageNo += 1;
+  }
+
+  return {
+    fields,
+    totalCount,
+    isTruncated: fields.length < totalCount,
+  };
+}
+
 function firstNonEmpty(fields: PossessionField[], key: keyof PossessionField): string | null {
   for (const field of fields) {
     const value = field?.[key];
@@ -103,7 +123,6 @@ function firstNonEmpty(fields: PossessionField[], key: keyof PossessionField): s
   return null;
 }
 
-/** ldCodeNm(법정동명) + mnnmSlno(지번)으로 지번주소를 구성한다. */
 function buildJibunAddress(fields: PossessionField[]): string | null {
   const dong = firstNonEmpty(fields, 'ldCodeNm');
   const jibun = firstNonEmpty(fields, 'mnnmSlno');
@@ -118,6 +137,7 @@ function emptyResult(overrides: Partial<LandOwnershipResult>): LandOwnershipResu
     ownershipCode: null,
     ownershipLabels: [],
     hasMixedOwnership: false,
+    hasIncompleteOwnership: false,
     recordCount: 0,
     landCategory: null,
     areaSquareMeters: null,
@@ -130,18 +150,36 @@ function emptyResult(overrides: Partial<LandOwnershipResult>): LandOwnershipResu
   };
 }
 
+function isValidCoordinate(longitude: number, latitude: number): boolean {
+  return (
+    Number.isFinite(longitude) &&
+    longitude >= -180 &&
+    longitude <= 180 &&
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90
+  );
+}
+
 export async function lookupLandOwnership(
   longitude: number,
   latitude: number,
 ): Promise<{ ok: true; data: LandOwnershipResult } | { ok: false; error: LandLookupError }> {
+  if (!isValidCoordinate(longitude, latitude)) {
+    return {
+      ok: false,
+      error: {
+        code: 'PARAM',
+        message: '위치 좌표가 올바르지 않습니다. 지도를 다시 선택해 주세요.',
+      },
+    };
+  }
+
   if (!hasVworldApiKey()) {
-    // 키 미설정 시에도 UI를 확인할 수 있도록 목(mock) 데이터를 반환한다.
-    // 실제 데이터가 아님은 isMock 플래그로 UI에 항상 드러난다.
     return { ok: true, data: emptyResult({ isMock: true }) };
   }
 
   try {
-    // 주소는 소유정보와 독립적으로 얻을 수 있으므로 병렬로 호출한다.
     const [pnu, geocoded] = await Promise.all([
       getPnuByPoint(longitude, latitude),
       reverseGeocode({ latitude, longitude }),
@@ -152,27 +190,28 @@ export async function lookupLandOwnership(
       : { jibunAddress: null, roadAddress: null };
 
     if (!pnu) {
-      // 하천구역 등 지적 정보가 없는 지점
       return {
         ok: true,
         data: emptyResult({ address: geocodedAddress, isNoCadastralInfo: true }),
       };
     }
 
-    const { fields, totalCount } = await getPossessionAttr(pnu);
+    const { fields, totalCount, isTruncated } = await getPossessionAttr(pnu);
 
     if (fields.length === 0) {
-      return { ok: true, data: emptyResult({ pnu, address: geocodedAddress }) };
+      return {
+        ok: true,
+        data: emptyResult({
+          pnu,
+          address: geocodedAddress,
+          recordCount: totalCount,
+        }),
+      };
     }
 
-    // 복수 레코드(건물 층별 등)에서 소유구분이 모두 같으면 하나로, 다르면 복수 소유로 안내한다.
-    // 판별 기준은 코드(posesnSeCode)이고, 라벨(posesnSeCodeNm)은 화면 표시용이다.
+    const normalizedCodes = fields.map((field) => normalizeOwnershipCode(field.posesnSeCode));
     const ownershipCodes = Array.from(
-      new Set(
-        fields
-          .map((field) => normalizeOwnershipCode(field.posesnSeCode))
-          .filter((code): code is number => code != null),
-      ),
+      new Set(normalizedCodes.filter((code): code is number => code != null)),
     );
     const ownershipLabels = Array.from(
       new Set(
@@ -182,23 +221,36 @@ export async function lookupLandOwnership(
           .map((label) => label.trim()),
       ),
     );
-    // 코드가 하나도 없으면 라벨 종류 수로 대신 판단한다.
+
+    const hasMissingOwnershipCode = normalizedCodes.some((code) => code == null);
+    const hasUnclassifiableOwnershipCode = ownershipCodes.some(
+      (code) => classifyOwnership(code) === 'unknown',
+    );
+    const hasIncompleteOwnership =
+      isTruncated || hasMissingOwnershipCode || hasUnclassifiableOwnershipCode;
+
     const hasMixedOwnership =
-      ownershipCodes.length > 1 || (ownershipCodes.length === 0 && ownershipLabels.length > 1);
+      ownershipCodes.length > 1 ||
+      (ownershipCodes.length === 0 && ownershipLabels.length > 1);
+
     const representativeCode = firstNonEmpty(fields, 'posesnSeCode');
     const representativeLabel = ownershipLabels[0] ?? null;
+    const canClassify =
+      !hasMixedOwnership &&
+      !hasIncompleteOwnership &&
+      ownershipCodes.length === 1;
 
     const area = firstNonEmpty(fields, 'lndpclAr');
 
     return {
       ok: true,
       data: {
-        // 소유구분이 섞여 있으면 한쪽으로 단정하지 않고 '확인 불가'로 두고 목록을 함께 보여준다.
-        ownershipType: hasMixedOwnership ? 'unknown' : classifyOwnership(representativeCode),
+        ownershipType: canClassify ? classifyOwnership(ownershipCodes[0]) : 'unknown',
         ownershipLabel: representativeLabel,
         ownershipCode: representativeCode,
         ownershipLabels,
         hasMixedOwnership,
+        hasIncompleteOwnership,
         recordCount: totalCount,
         landCategory: firstNonEmpty(fields, 'lndcgrCodeNm'),
         areaSquareMeters: area != null && area !== '' ? Number(area) : null,
