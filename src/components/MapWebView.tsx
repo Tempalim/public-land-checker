@@ -9,6 +9,12 @@ interface MapWebViewProps {
   onMapTap: (coordinate: Coordinate) => void;
 }
 
+interface MapTapPayload {
+  type: 'tap';
+  latitude: number;
+  longitude: number;
+}
+
 function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null) {
   const escapedApiKey = encodeURIComponent(apiKey);
 
@@ -82,16 +88,25 @@ function buildHtml(apiKey: string, center: Coordinate, marker: Coordinate | null
 </html>`;
 }
 
-function isValidCoordinate(latitude: unknown, longitude: unknown): latitude is number {
+function isMapTapPayload(payload: unknown): payload is MapTapPayload {
+  if (typeof payload !== 'object' || payload === null) return false;
+
+  const candidate = payload as {
+    type?: unknown;
+    latitude?: unknown;
+    longitude?: unknown;
+  };
+
   return (
-    typeof latitude === 'number' &&
-    Number.isFinite(latitude) &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    typeof longitude === 'number' &&
-    Number.isFinite(longitude) &&
-    longitude >= -180 &&
-    longitude <= 180
+    candidate.type === 'tap' &&
+    typeof candidate.latitude === 'number' &&
+    Number.isFinite(candidate.latitude) &&
+    candidate.latitude >= -90 &&
+    candidate.latitude <= 90 &&
+    typeof candidate.longitude === 'number' &&
+    Number.isFinite(candidate.longitude) &&
+    candidate.longitude >= -180 &&
+    candidate.longitude <= 180
   );
 }
 
@@ -104,18 +119,8 @@ export function MapWebView({ apiKey, center, marker, onMapTap }: MapWebViewProps
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
       const payload: unknown = JSON.parse(event.nativeEvent.data);
-      if (
-        typeof payload === 'object' &&
-        payload !== null &&
-        'type' in payload &&
-        (payload as { type?: unknown }).type === 'tap'
-      ) {
-        const latitude = (payload as { latitude?: unknown }).latitude;
-        const longitude = (payload as { longitude?: unknown }).longitude;
-
-        if (isValidCoordinate(latitude, longitude)) {
-          onMapTap({ latitude, longitude });
-        }
+      if (isMapTapPayload(payload)) {
+        onMapTap({ latitude: payload.latitude, longitude: payload.longitude });
       }
     } catch {
       // malformed WebView messages are ignored
