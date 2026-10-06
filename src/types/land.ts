@@ -42,6 +42,9 @@ export interface LandOwnershipResult {
 }
 
 export type LandLookupErrorCode =
+  | 'TIMEOUT'
+  | 'CANCELLED'
+  | 'SCHEMA'
   | 'NETWORK'
   | 'NO_API_KEY'
   | 'NOT_FOUND'

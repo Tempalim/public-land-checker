@@ -1,12 +1,14 @@
 import { AddressInfo, Coordinate, LandLookupError } from '../types/land';
 import { getVworldApiKey, hasVworldApiKey, VWORLD_GEOCODER_URL } from './config';
-import { toVworldApiError } from './errors';
+import { fetchJson } from './request';
+import { toVworldApiError, VworldApiError } from './errors';
 
 // 브이월드 지오코더(좌표 -> 주소) API 2.0 — 0단계 확인 완료
 // GET /req/address?service=address&request=getAddress&version=2.0
 //     &crs=epsg:4326&point=경도,위도&format=json&type=PARCEL&key=키
 export async function reverseGeocode(
   coordinate: Coordinate,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; data: AddressInfo } | { ok: false; error: LandLookupError }> {
   if (!hasVworldApiKey()) {
     return {
@@ -27,14 +29,7 @@ export async function reverseGeocode(
   });
 
   try {
-    const response = await fetch(`${VWORLD_GEOCODER_URL}?${params.toString()}`);
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: { code: 'NETWORK', message: `지오코더 API 응답 오류 (HTTP ${response.status})` },
-      };
-    }
-    const json = await response.json();
+    const json: any = await fetchJson(`${VWORLD_GEOCODER_URL}?${params.toString()}`, signal);
 
     // 지오코더 오류 응답: { response: { status: "ERROR", error: { code, text } } }
     if (json?.response?.status === 'ERROR' || json?.response?.error) {
@@ -47,12 +42,13 @@ export async function reverseGeocode(
 
     return { ok: true, data: parseGeocoderResponse(json) };
   } catch (e) {
+    if (e instanceof VworldApiError) return { ok: false, error: { code: e.code, message: e.message } };
     return {
       ok: false,
       error: {
         code: 'NETWORK',
         message: '네트워크 연결을 확인한 뒤 다시 시도해 주세요.',
-        rawCode: e instanceof Error ? e.message : null,
+        rawCode: null,
       },
     };
   }

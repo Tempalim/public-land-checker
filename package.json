@@ -23,7 +23,11 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test-land-api": "node scripts/test-land-api.mjs"
+    "test-land-api": "node scripts/test-land-api.mjs",
+    "test": "node --require ./scripts/register-tests.cjs --test tests/*.test.cjs"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  }
 }

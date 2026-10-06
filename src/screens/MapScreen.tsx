@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,6 +18,8 @@ import { colors } from '../constants/colors';
 import { useCurrentLocation } from '../hooks/useCurrentLocation';
 import { Coordinate, LandLookupError, LandOwnershipResult } from '../types/land';
 
+import { createLatestRequest } from '../utils/latestRequest';
+
 const LOW_ACCURACY_THRESHOLD_METERS = 50;
 const DEFAULT_CENTER: Coordinate = { latitude: 37.5665, longitude: 126.978 };
 
@@ -34,21 +36,37 @@ export function MapScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
 
-  const runLookup = useCallback(async (target: Coordinate) => {
-    setLoading(true);
-    setLookupError(null);
-    setSheetVisible(true);
-
-    const response = await lookupLandOwnership(target.longitude, target.latitude);
+  const requests = useRef(createLatestRequest()).current;
+  const invalidateLookup = useCallback(() => {
+    requests.cancel();
     setLoading(false);
+    setResult(null);
+    setLookupError(null);
+    setSheetVisible(false);
+    setReportModalVisible(false);
+  }, [requests]);
 
-    if (response.ok) {
-      setResult(response.data);
-    } else {
-      setResult(null);
-      setLookupError(response.error);
+  useEffect(() => () => requests.cancel(), [requests]);
+  useEffect(() => {
+    if (!selected) invalidateLookup();
+  }, [coordinate?.latitude, coordinate?.longitude, selected, invalidateLookup]);
+
+  const runLookup = useCallback(async (target: Coordinate) => {
+    const request = requests.start();
+    setLoading(true);
+    setResult(null);
+    setLookupError(null);
+    setReportModalVisible(false);
+    setSheetVisible(true);
+    try {
+      const response = await lookupLandOwnership(target.longitude, target.latitude, request.signal);
+      if (!request.isCurrent()) return;
+      if (response.ok) setResult(response.data);
+      else if (response.error.code !== 'CANCELLED') setLookupError(response.error);
+    } finally {
+      if (request.isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [requests]);
 
   const handleCheckHere = () => {
     const target = selected ?? coordinate;
@@ -57,15 +75,13 @@ export function MapScreen() {
   };
 
   const handleMapTap = (coord: Coordinate) => {
+    invalidateLookup();
     setSelected(coord);
-    setSheetVisible(false);
-    setLookupError(null);
   };
 
   const handleUseCurrentLocation = () => {
+    invalidateLookup();
     setSelected(null);
-    setSheetVisible(false);
-    setLookupError(null);
     requestLocation();
   };
 
@@ -205,7 +221,7 @@ export function MapScreen() {
               onReportPress={() => setReportModalVisible(true)}
             />
           </ScrollView>
-          <TouchableOpacity style={styles.dismissSheet} onPress={() => setSheetVisible(false)}>
+          <TouchableOpacity style={styles.dismissSheet} onPress={invalidateLookup}>
             <Text style={styles.dismissSheetText}>지도로 돌아가기</Text>
           </TouchableOpacity>
         </View>
