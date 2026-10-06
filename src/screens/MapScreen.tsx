@@ -17,7 +17,7 @@ import { useCurrentLocation } from '../hooks/useCurrentLocation';
 import { Coordinate, LandLookupError, LandOwnershipResult } from '../types/land';
 
 const LOW_ACCURACY_THRESHOLD_METERS = 50;
-const DEFAULT_CENTER: Coordinate = { latitude: 37.5665, longitude: 126.978 }; // 서울시청 (위치 권한 거부 시 기본값)
+const DEFAULT_CENTER: Coordinate = { latitude: 37.5665, longitude: 126.978 };
 
 export function MapScreen() {
   const { status, coordinate, accuracy, errorMessage: locationError, requestLocation } =
@@ -48,61 +48,85 @@ export function MapScreen() {
 
   const handleCheckHere = () => {
     const target = selected ?? coordinate;
-    if (!target) return;
+    if (!target || loading) return;
     runLookup(target);
   };
 
   const handleMapTap = (coord: Coordinate) => {
     setSelected(coord);
     setSheetVisible(false);
+    setLookupError(null);
   };
 
-  if (status === 'denied') {
-    return (
-      <SafeAreaView style={styles.centered}>
-        <Text style={styles.permissionTitle}>위치 권한이 필요합니다</Text>
-        <Text style={styles.permissionBody}>
-          현재 위치의 소유구분을 확인하려면 위치 접근 권한을 허용해 주세요. 설정에서 권한을
-          허용한 뒤 다시 시도해 주세요.
-        </Text>
-        <TouchableOpacity style={styles.primaryButton} onPress={requestLocation}>
-          <Text style={styles.primaryButtonText}>다시 시도</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => Linking.openSettings()}>
-          <Text style={styles.secondaryButtonText}>설정 열기</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
   const center = selected ?? coordinate ?? DEFAULT_CENTER;
+  const marker = selected ?? coordinate;
   const isLowAccuracy = accuracy != null && accuracy > LOW_ACCURACY_THRESHOLD_METERS;
+  const canCheck = selected != null || coordinate != null;
+
+  const checkButtonLabel =
+    status === 'requesting' && !canCheck
+      ? '현재 위치 확인 중…'
+      : canCheck
+        ? '여기 확인하기'
+        : '지도를 탭해 위치를 선택하세요';
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={StyleSheet.absoluteFill}>
-        <MapWebView apiKey={getVworldApiKey()} center={center} marker={selected} onMapTap={handleMapTap} />
+        <MapWebView apiKey={getVworldApiKey()} center={center} marker={marker} onMapTap={handleMapTap} />
       </View>
 
-      {!hasVworldApiKey() && (
-        <View style={styles.topBanner}>
-          <Text style={styles.topBannerText}>
-            VWORLD_API_KEY가 없어 지도/조회가 임시 데이터로 표시됩니다.
-          </Text>
-        </View>
-      )}
+      <View style={styles.noticeStack} pointerEvents="box-none">
+        {!hasVworldApiKey() && (
+          <View style={styles.topBanner}>
+            <Text style={styles.topBannerText}>
+              VWORLD_API_KEY가 없어 조회 결과는 임시 데이터입니다.
+            </Text>
+          </View>
+        )}
 
-      {isLowAccuracy && !selected && (
-        <View style={styles.topBanner}>
-          <Text style={styles.topBannerText}>
-            GPS 정확도가 낮습니다 (±{Math.round(accuracy!)}m). 지도를 탭해 직접 지점을 선택해 주세요.
-          </Text>
-        </View>
-      )}
+        {status === 'denied' && (
+          <View style={styles.permissionBanner}>
+            <Text style={styles.permissionBannerTitle}>위치 권한이 꺼져 있습니다</Text>
+            <Text style={styles.permissionBannerText}>
+              지도에서 원하는 지점을 직접 선택할 수 있습니다. 현재 위치를 쓰려면 권한을 허용해 주세요.
+            </Text>
+            <View style={styles.permissionActions}>
+              <TouchableOpacity style={styles.bannerButton} onPress={requestLocation}>
+                <Text style={styles.bannerButtonText}>다시 요청</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.bannerButton} onPress={() => Linking.openSettings()}>
+                <Text style={styles.bannerButtonText}>설정 열기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {isLowAccuracy && !selected && status === 'granted' && (
+          <View style={styles.topBanner}>
+            <Text style={styles.topBannerText}>
+              GPS 정확도가 낮습니다 (±{Math.round(accuracy!)}m). 지도를 탭해 직접 지점을 선택해 주세요.
+            </Text>
+          </View>
+        )}
+
+        {locationError && status === 'error' && (
+          <View style={styles.topBanner}>
+            <Text style={styles.topBannerText}>
+              현재 위치를 가져오지 못했습니다. 지도를 탭해 직접 선택해 주세요.
+            </Text>
+          </View>
+        )}
+      </View>
 
       {!sheetVisible && (
-        <TouchableOpacity style={styles.checkButton} onPress={handleCheckHere}>
-          <Text style={styles.checkButtonText}>여기 확인하기</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          disabled={!canCheck || loading}
+          style={[styles.checkButton, (!canCheck || loading) && styles.checkButtonDisabled]}
+          onPress={handleCheckHere}
+        >
+          <Text style={styles.checkButtonText}>{checkButtonLabel}</Text>
         </TouchableOpacity>
       )}
 
@@ -112,18 +136,15 @@ export function MapScreen() {
             loading={loading}
             error={lookupError}
             result={result}
-            onRetry={() => runLookup(selected ?? coordinate ?? DEFAULT_CENTER)}
+            onRetry={() => {
+              const target = selected ?? coordinate;
+              if (target) runLookup(target);
+            }}
             onReportPress={() => setReportModalVisible(true)}
           />
           <TouchableOpacity style={styles.dismissSheet} onPress={() => setSheetVisible(false)}>
             <Text style={styles.dismissSheetText}>지도로 돌아가기</Text>
           </TouchableOpacity>
-        </View>
-      )}
-
-      {locationError && (
-        <View style={styles.topBanner}>
-          <Text style={styles.topBannerText}>{locationError}</Text>
         </View>
       )}
 
@@ -137,51 +158,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    backgroundColor: colors.background,
-  },
-  permissionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  permissionBody: {
-    fontSize: 14,
-    color: colors.subtext,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  primaryButton: {
-    backgroundColor: colors.national,
-    borderRadius: 10,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    marginBottom: 10,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-  },
-  secondaryButtonText: {
-    color: colors.subtext,
-    fontWeight: '600',
-  },
-  topBanner: {
+  noticeStack: {
     position: 'absolute',
     top: 12,
     left: 12,
     right: 12,
-    backgroundColor: 'rgba(31,41,55,0.9)',
+    gap: 8,
+  },
+  topBanner: {
+    backgroundColor: 'rgba(31,41,55,0.92)',
     borderRadius: 10,
     padding: 10,
   },
@@ -189,6 +174,41 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     textAlign: 'center',
+    lineHeight: 18,
+  },
+  permissionBanner: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  permissionBannerTitle: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  permissionBannerText: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  permissionActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  bannerButton: {
+    backgroundColor: colors.unknownBg,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  bannerButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
   },
   checkButton: {
     position: 'absolute',
@@ -203,6 +223,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
+  },
+  checkButtonDisabled: {
+    backgroundColor: colors.unknown,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   checkButtonText: {
     color: '#fff',
