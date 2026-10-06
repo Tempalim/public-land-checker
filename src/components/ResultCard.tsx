@@ -71,6 +71,13 @@ export function ResultCard({ loading, error, result, onRetry, onReportPress }: R
   }
 
   const badge = BADGE_BY_TYPE[result.ownershipType];
+  const ownershipValue = result.hasMixedOwnership
+    ? result.ownershipLabels.length > 0
+      ? result.ownershipLabels.join(', ')
+      : '확인 불가 (복수 기록)'
+    : result.hasIncompleteOwnership
+      ? '확인 불가 (일부 기록 미확인)'
+      : formatOwnership(result.ownershipType, result.ownershipLabel, result.ownershipCode);
 
   return (
     <View style={styles.card}>
@@ -88,21 +95,22 @@ export function ResultCard({ loading, error, result, onRetry, onReportPress }: R
 
       {result.hasMixedOwnership && (
         <Text style={styles.mixedNotice}>
-          이 필지에는 소유구분이 다른 {result.recordCount}건의 기록이 있습니다 (
-          {result.ownershipLabels.join(', ')}). 복수 소유일 수 있어 단정하기 어렵습니다.
+          이 필지에는 서로 다른 소유구분 기록이 있습니다. 전체 기록을 하나의 소유구분으로 단정하지
+          않습니다.
+        </Text>
+      )}
+
+      {result.hasIncompleteOwnership && !result.hasMixedOwnership && (
+        <Text style={styles.mixedNotice}>
+          일부 소유 기록의 코드가 없거나 분류할 수 없거나, 전체 기록을 모두 가져오지 못했습니다.
+          안전을 위해 소유구분을 단정하지 않습니다.
         </Text>
       )}
 
       <InfoRow label="주소" value={result.address.jibunAddress ?? '확인 불가'} />
       <InfoRow label="지목" value={result.landCategory ?? '확인 불가'} />
-      <InfoRow
-        label="소유"
-        value={
-          result.hasMixedOwnership
-            ? result.ownershipLabels.join(', ')
-            : formatOwnership(result.ownershipType, result.ownershipLabel, result.ownershipCode)
-        }
-      />
+      <InfoRow label="소유" value={ownershipValue} />
+      {result.recordCount > 1 && <InfoRow label="기록" value={`${result.recordCount}건`} />}
       {result.areaSquareMeters != null && !Number.isNaN(result.areaSquareMeters) && (
         <InfoRow label="면적" value={`${result.areaSquareMeters.toLocaleString('ko-KR')}㎡`} />
       )}
