@@ -6,6 +6,7 @@ import {
 } from '../types/land';
 import { classifyOwnership, normalizeOwnershipCode } from '../utils/ownership';
 import { toVworldApiError, VworldApiError } from './errors';
+import { fetchJson } from './request';
 import { reverseGeocode } from './geocoder';
 import {
   getVworldApiKey,
@@ -23,7 +24,7 @@ interface PossessionPage {
   totalCount: number;
 }
 
-async function getPnuByPoint(longitude: number, latitude: number): Promise<string | null> {
+async function getPnuByPoint(longitude: number, latitude: number, signal?: AbortSignal): Promise<string | null> {
   const query = new URLSearchParams({
     service: 'data',
     request: 'GetFeature',
@@ -34,12 +35,7 @@ async function getPnuByPoint(longitude: number, latitude: number): Promise<strin
     size: '10',
   });
 
-  const response = await fetch(`${VWORLD_DATA_URL}?${query.toString()}`);
-  if (!response.ok) {
-    throw new VworldApiError('NETWORK', `필지 조회 실패 (HTTP ${response.status})`, null);
-  }
-
-  const json = await response.json();
+  const json: any = await fetchJson(`${VWORLD_DATA_URL}?${query.toString()}`, signal);
 
   if (json?.response?.status === 'ERROR' || json?.response?.error) {
     throw toVworldApiError(json?.response?.error?.code, json?.response?.error?.text);
@@ -49,7 +45,7 @@ async function getPnuByPoint(longitude: number, latitude: number): Promise<strin
   return typeof pnu === 'string' && pnu.length > 0 ? pnu : null;
 }
 
-async function getPossessionPage(pnu: string, pageNo: number): Promise<PossessionPage> {
+async function getPossessionPage(pnu: string, pageNo: number, signal?: AbortSignal): Promise<PossessionPage> {
   const query = new URLSearchParams({
     pnu,
     format: 'json',
@@ -58,16 +54,7 @@ async function getPossessionPage(pnu: string, pageNo: number): Promise<Possessio
     key: getVworldApiKey(),
   });
 
-  const response = await fetch(`${VWORLD_POSSESSION_ATTR_URL}?${query.toString()}`);
-  if (!response.ok) {
-    throw new VworldApiError(
-      'NETWORK',
-      `토지소유정보 조회 실패 (HTTP ${response.status})`,
-      null,
-    );
-  }
-
-  const json = await response.json();
+  const json: any = await fetchJson(`${VWORLD_POSSESSION_ATTR_URL}?${query.toString()}`, signal);
   const possessions = json?.possessions;
 
   const resultCode: string | undefined = possessions?.resultCode ?? json?.resultCode;
@@ -91,8 +78,9 @@ async function getPossessionPage(pnu: string, pageNo: number): Promise<Possessio
 
 async function getPossessionAttr(
   pnu: string,
+  signal?: AbortSignal,
 ): Promise<{ fields: PossessionField[]; totalCount: number; isTruncated: boolean }> {
-  const firstPage = await getPossessionPage(pnu, 1);
+  const firstPage = await getPossessionPage(pnu, 1, signal);
   const fields = [...firstPage.fields];
   const totalCount = firstPage.totalCount;
 
@@ -101,7 +89,7 @@ async function getPossessionAttr(
     fields.length < totalCount &&
     pageNo <= MAX_POSSESSION_PAGES
   ) {
-    const page = await getPossessionPage(pnu, pageNo);
+    const page = await getPossessionPage(pnu, pageNo, signal);
     if (page.fields.length === 0) break;
     fields.push(...page.fields);
     pageNo += 1;
@@ -164,6 +152,7 @@ function isValidCoordinate(longitude: number, latitude: number): boolean {
 export async function lookupLandOwnership(
   longitude: number,
   latitude: number,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; data: LandOwnershipResult } | { ok: false; error: LandLookupError }> {
   if (!isValidCoordinate(longitude, latitude)) {
     return {
@@ -181,8 +170,8 @@ export async function lookupLandOwnership(
 
   try {
     const [pnu, geocoded] = await Promise.all([
-      getPnuByPoint(longitude, latitude),
-      reverseGeocode({ latitude, longitude }),
+      getPnuByPoint(longitude, latitude, signal),
+      reverseGeocode({ latitude, longitude }, signal),
     ]);
 
     const geocodedAddress: AddressInfo = geocoded.ok
@@ -196,7 +185,7 @@ export async function lookupLandOwnership(
       };
     }
 
-    const { fields, totalCount, isTruncated } = await getPossessionAttr(pnu);
+    const { fields, totalCount, isTruncated } = await getPossessionAttr(pnu, signal);
 
     if (fields.length === 0) {
       return {
@@ -273,7 +262,7 @@ export async function lookupLandOwnership(
       error: {
         code: 'NETWORK',
         message: '네트워크 연결을 확인한 뒤 다시 시도해 주세요.',
-        rawCode: e instanceof Error ? e.message : null,
+        rawCode: null,
       },
     };
   }
